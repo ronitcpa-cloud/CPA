@@ -66,7 +66,48 @@ button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);borde
 .bar{height:8px;background:#e6edee;border-radius:99px;overflow:hidden;margin-top:6px}
 .bar span{display:block;height:100%;background:var(--accent)}
 @media (min-width:640px){.cards{grid-template-columns:repeat(4,1fr)}}
+@media (max-width:680px){
+  body{font-size:15px}
+  main{padding:10px 8px 32px}
+  .cards{grid-template-columns:repeat(2,1fr);gap:6px}
+  .card{padding:8px 9px}
+  .card .v{font-size:19px}
+  .scroll{overflow:visible}
+  table{border:none;background:transparent}
+  thead{display:none}
+  tbody,tfoot,tr,td{display:block;width:100%}
+  tbody tr,tfoot tr{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:8px 10px;margin-bottom:6px}
+  tfoot tr{background:#eef3f4}
+  td{border:none;padding:2px 0;white-space:normal;display:flex;gap:10px;justify-content:space-between;font-size:14px}
+  td::before{content:attr(data-l);color:var(--ink-2);font-size:12.5px;flex:0 0 auto}
+  td:first-child{font-weight:700;font-size:15.5px;border-bottom:1px solid var(--line);
+    padding-bottom:5px;margin-bottom:4px}
+  td:first-child::before{content:""}
+  td:empty{display:none}
+  nav{padding:8px}
+  nav button{padding:6px 11px;font-size:13.5px}
+  h2{margin:16px 0 6px}
+}
+.plan{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.plan .r{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:7px 11px;
+  border-bottom:1px solid var(--line);align-items:baseline;font-size:14.5px}
+.plan .r:last-child{border-bottom:none}
+.plan .r b{font-weight:700;font-size:15px;min-width:52px;text-align:left}
+.plan .r span.m{color:var(--ink-2);min-width:74px;text-align:left}
+.plan .r.tot{background:#eef3f4;font-weight:700}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:6px 2px}
+@media print{details{display:block}details>summary{display:none}details[open]{}}
+@page{size:A4 landscape;margin:10mm}
+
 @media print{
+  thead{display:table-header-group}
+  tbody,tfoot,tr,td{display:revert}
+  td::before{content:""}
+  table{border:1px solid #999;background:#fff}
+  td{border-bottom:1px solid #ddd;white-space:nowrap}
+
   nav,#loadWrap,.noprint{display:none!important}
   header{background:#fff;color:#000;border-bottom:2px solid #000}
   body{background:#fff}
@@ -254,13 +295,18 @@ function businessDays(from,to){let n=0;const d=new Date(from);
 function card(k,v,n,cls){return `<div class="card"><div class="k">${k}</div>
   <div class="v ${cls||""}">${v}</div>${n?`<div class="n">${n}</div>`:""}</div>`;}
 function table(head,rows,foot){
+  const td=(c,i)=>`<td data-l="${head[i]||""}">${c==null?"":c}</td>`;
   return `<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
-  <tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr>`).join("")
+  <tbody>${rows.length?rows.map(r=>`<tr>${r.map(td).join("")}</tr>`).join("")
     :`<tr><td colspan="${head.length}" class="mute">אין נתונים להצגה</td></tr>`}</tbody>
-  ${foot?`<tfoot><tr>${foot.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr></tfoot>`:""}</table></div>`;
+  ${foot?`<tfoot><tr>${foot.map(td).join("")}</tr></tfoot>`:""}</table></div>`;
 }
 function printBtn(){return `<div class="row noprint"><button class="ghost" onclick="window.print()">שמירה כ־PDF / הדפסה</button></div>`;}
 
+function planRow(label,r){
+  return `<div class="r"><span>${label}</span><b>${fmt1(r.h)||"0"}</b>` +
+    `<span class="m">${r.p?fmt0(r.p)+" ₪":"—"}</span></div>`;
+}
 function viewStatus(){
   const d=S.data,t=totals(d),today=midnight(new Date());
   const eom=new Date(today.getFullYear(),today.getMonth()+1,0);
@@ -284,18 +330,20 @@ function viewStatus(){
     ${card("שעות פנויות",fmt1(free),"עד סוף החודש",free<0?"bad":"")}
   </div>
   <h2>תכנון — שעות וכסף</h2>
-  ${table(["טווח","שעות","שכר צפוי","₪ לשעה"],[
-    ["היום",fmt1(rToday.h),fmt0(rToday.p)+" ₪",rToday.h?fmt0(rToday.p/rToday.h):""],
-    ["7 הימים הקרובים",fmt1(rWeek.h),fmt0(rWeek.p)+" ₪",rWeek.h?fmt0(rWeek.p/rWeek.h):""],
-    ["מהיום עד סוף החודש",fmt1(rMonth.h),fmt0(rMonth.p)+" ₪",rMonth.h?fmt0(rMonth.p/rMonth.h):""],
-    ["באיחור",fmt1(late.h),fmt0(late.p)+" ₪",""],
-    ["ללא תאריך",fmt1(noDate.reduce((s,x)=>s+x.left,0)),fmt0(noDate.reduce((s,x)=>s+x.payLeft,0))+" ₪",""],
-    ["קיבולת עד סוף החודש",fmt1(cap),businessDays(today,eom)+" ימי עסקים × "+d.hoursPerDay,""]
-  ])}
-  <h2>מגמה חודשית</h2>
+  <div class="plan">
+    ${planRow("היום",rToday)}
+    ${planRow("7 הימים הקרובים",rWeek)}
+    ${planRow("מהיום עד סוף החודש",rMonth)}
+    ${planRow("באיחור",late)}
+    ${planRow("ללא תאריך",{h:noDate.reduce((s,x)=>s+x.left,0),p:noDate.reduce((s,x)=>s+x.payLeft,0)})}
+    <div class="r tot"><span>שעות פנויות עד סוף החודש</span><b>${fmt1(free)}</b>
+      <span class="m">קיבולת ${fmt1(cap)}</span></div>
+  </div>
+  <details><summary>מגמה חודשית</summary>
   ${table(["חודש","שעות","מתוכן כלליות","שכ\"ט משרד","החלק שלך","₪ לשעה"],
-    d.months.map(m=>[m.key,fmt1(m.hours),fmt1(m.general),fmt0(m.fee),fmt0(m.mine),
+    d.months.filter(m=>m.hours>0||m.fee>0).map(m=>[m.key,fmt1(m.hours),fmt1(m.general),fmt0(m.fee),fmt0(m.mine),
       (m.hours-m.general)>0?fmt0(m.mine/(m.hours-m.general)):""]))}
+  </details>
   ${printBtn()}`;
 }
 function viewOpen(){
