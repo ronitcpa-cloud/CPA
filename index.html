@@ -151,6 +151,16 @@ summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:6px 2px}
     <div class="bar" id="barWrap" hidden><span id="bar" style="width:0%"></span></div>
     <div id="msg"></div>
   </div>
+  <div id="load" style="margin-top:12px">
+    <h2>סנכרון מגוגל דרייב</h2>
+    <p class="mute">מתחברים פעם אחת, האפליקציה זוכרת את הקובץ בדרייב, ומאז אפשר לרענן בלחיצה אחת מכל מקום.</p>
+    <div class="row">
+      <button class="ghost" id="gconnect">התחבר לדרייב</button>
+      <button class="act" id="gsync">רענן מהדרייב</button>
+      <button class="ghost" id="gpick">בחר קובץ אחר</button>
+    </div>
+    <div id="gmsg" class="mute"></div>
+  </div>
 </section>
 
 <section id="s-status" hidden></section>
@@ -160,6 +170,7 @@ summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:6px 2px}
 <section id="s-drill" hidden></section>
 </main>
 
+<script src="https://accounts.google.com/gsi/client" async defer onerror="window.GSI_BLOCKED=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha512/0.8.0/sha512.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/aes-js/3.1.2/index.min.js"></script>
@@ -459,6 +470,72 @@ function tab(name){
 }
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>tab(b.dataset.t));
 
+/* ---------- google drive ---------- */
+const GCLIENT="466114716813-rs3j8kcvj6ccljabgae4je8ktos0ehft.apps.googleusercontent.com";
+const GKEY="maakav2026-drive";
+let gToken=null, gClient=null;
+const gState=()=>{try{return JSON.parse(localStorage.getItem(GKEY)||"{}")}catch(e){return {}}};
+const gSave=o=>localStorage.setItem(GKEY,JSON.stringify(Object.assign(gState(),o)));
+function gInfo(t,bad){const e=$("#gmsg"); if(e) e.innerHTML=bad?`<span class="flag">${t}</span>`:t;}
+function gReady(){
+  if(window.GSI_BLOCKED||!(window.google&&google.accounts&&google.accounts.oauth2)){
+    gInfo("סנכרון דרייב זמין רק מהאתר שלך (github.io), לא בתצוגה המקדימה.",true); return false;}
+  return true;
+}
+function gAuth(cb,silent){
+  if(!gReady()) return;
+  gClient=google.accounts.oauth2.initTokenClient({
+    client_id:GCLIENT, scope:"https://www.googleapis.com/auth/drive.readonly",
+    callback:r=>{ if(r&&r.access_token){gToken=r.access_token; cb&&cb();} else gInfo("ההתחברות לא הושלמה",true); }});
+  gClient.requestAccessToken({prompt:silent?"":"consent"});
+}
+async function gFetch(url){
+  const r=await fetch(url,{headers:{Authorization:"Bearer "+gToken}});
+  if(r.status===401||r.status===403){gToken=null;throw new Error("auth");}
+  if(!r.ok) throw new Error("drive "+r.status);
+  return r;
+}
+async function gFindFile(){
+  const q=encodeURIComponent("name contains 'מעקב' and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and trashed=false");
+  const r=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=10&supportsAllDrives=true&includeItemsFromAllDrives=true");
+  const j=await r.json();
+  if(!j.files||!j.files.length) throw new Error("לא נמצא קובץ מעקב בדרייב");
+  if(j.files.length===1) return j.files[0];
+  const names=j.files.map((f,i)=>(i+1)+". "+f.name).join("\n");
+  const pick=prompt("נמצאו כמה קבצים. איזה מספר לבחור?\n"+names,"1");
+  const idx=Math.max(1,Math.min(j.files.length,parseInt(pick||"1",10)))-1;
+  return j.files[idx];
+}
+async function gLoad(pickNew){
+  try{
+    if(!gToken){gAuth(()=>gLoad(pickNew));return;}
+    let st=gState();
+    if(pickNew||!st.fileId){
+      gInfo("מחפש את הקובץ בדרייב…");
+      const f=await gFindFile(); gSave({fileId:f.id,fileName:f.name}); st=gState();
+    }
+    gInfo("מוריד את "+(st.fileName||"הקובץ")+"…");
+    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st.fileId+"?alt=media&supportsAllDrives=true");
+    const buf=await r.arrayBuffer();
+    const pw=$("#pw").value||localStorage.getItem(PKEY)||"";
+    const head=new Uint8Array(buf.slice(0,2));
+    let data=new Uint8Array(buf);
+    if(!(head[0]===0x50&&head[1]===0x4b)){
+      if(!pw){gInfo("צריך להקליד את סיסמת הקובץ למעלה",true);return;}
+      gInfo("מפענח…"); $("#barWrap").hidden=false;
+      data=await decrypt(buf,pw,p=>{$("#bar").style.width=Math.round(p*100)+"%";});
+    }
+    const parsed=parseWorkbook(data);
+    if(parsed.tasks.every(t=>t.fee===0&&t.act===0)){gInfo("הקובץ בדרייב נשמר בלי ערכים מחושבים. פתחי אותו באקסל, שמרי, והעלי לדרייב.",true);return;}
+    S.data=parsed; save(parsed); render(); tab("status");
+    gSave({last:Date.now()});
+    gInfo("עודכן מהדרייב: "+(st.fileName||""));
+  }catch(e){
+    if(e.message==="auth"){gAuth(()=>gLoad(pickNew));return;}
+    gInfo(e.message||"הסנכרון נכשל",true);
+  }finally{$("#barWrap").hidden=true;$("#bar").style.width="0%";}
+}
+
 /* ---------- load / store ---------- */
 const KEY="maakav2026-data", PKEY="maakav2026-pw";
 function save(d){try{localStorage.setItem(KEY,JSON.stringify(d));}catch(e){}}
@@ -493,7 +570,11 @@ $("#go").onclick=async()=>{
 };
 $("#clear").onclick=()=>{localStorage.removeItem(KEY);localStorage.removeItem(PKEY);
   S.data=null;$("#hdrMeta").textContent="לא נטענו נתונים";$("#msg").textContent="הנתונים נמחקו מהמכשיר.";};
+$("#gconnect").onclick=()=>gAuth(()=>{gInfo("מחובר לדרייב ✓");},false);
+$("#gsync").onclick=()=>gLoad(false);
+$("#gpick").onclick=()=>gLoad(true);
 window.addEventListener("DOMContentLoaded",()=>{
+  const st=gState(); if(st.fileName) gInfo("קובץ שמור: "+st.fileName);
   const pw=localStorage.getItem(PKEY); if(pw){$("#pw").value=pw;$("#remember").checked=true;}
   const d=load();
   if(d){S.data=d;render();tab("status");} else {tab("file");}
