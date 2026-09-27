@@ -216,7 +216,7 @@ function parseWorkbook(buf){
     const rows=[];
     for(let r=6;r<=25;r++){
       const nme=cell(r,15); if(nme==null||String(nme).trim()==="") continue;
-      rows.push({name:String(nme).trim(),year:cell(r,16),date:excelDate(cell(r,17)),fee:num(cell(r,18))});
+      rows.push({name:String(nme).trim(),year:cell(r,16),date:excelDate(cell(r,17)),fee:num(cell(r,18)),extra:num(cell(r,19))});
     }
     let gen=0;
     for(let r=6;r<=70;r++){ if(String(cell(r,2)||"").trim()==="כלליות") gen+=num(cell(r,6)); }
@@ -302,12 +302,11 @@ function viewOpen(){
   const d=S.data;
   const list=d.tasks.filter(isOpen).sort((a,b)=>(a.sched?a.sched:new Date(2100,0,1))-(b.sched?b.sched:new Date(2100,0,1)));
   const rows=list.map(t=>[t.name,t.year,t.type,t.work,t.sched?t.sched.toLocaleDateString("he-IL"):"—",
-    fmt1(t.est),fmt1(t.act),fmt1(t.left),fmt0(t.fee),fmt0(t.mine),fmt0(t.rateEst),fmt0(t.payLeft)]);
+    fmt1(t.est),fmt1(t.act),fmt1(t.left)]);
   const sum=(f)=>list.reduce((s,t)=>s+f(t),0);
   return `<h2>תיקים פתוחים (${list.length})</h2>
-  ${table(["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי","בפועל","נותרו","שכ\"ט","החלק שלך","₪ לשעה","שכר ליתרה"],rows,
-    ["סה\"כ","","","","",fmt1(sum(t=>t.est)),fmt1(sum(t=>t.act)),fmt1(sum(t=>t.left)),
-     fmt0(sum(t=>t.fee)),fmt0(sum(t=>t.mine)),"",fmt0(sum(t=>t.payLeft))])}
+  ${table(["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי שעות","שעות בפועל","שעות שנותרו"],rows,
+    ["סה\"כ","","","","",fmt1(sum(t=>t.est)),fmt1(sum(t=>t.act)),fmt1(sum(t=>t.left))])}
   ${printBtn()}`;
 }
 function viewSched(){
@@ -318,7 +317,7 @@ function viewSched(){
   const list=r.list.sort((a,b)=>a.sched-b.sched);
   const iso=x=>x.toISOString().slice(0,10);
   const rows=list.map(t=>[t.sched.toLocaleDateString("he-IL"),DAYS[t.sched.getDay()],t.name,t.year,t.type,
-    t.work,fmt1(t.left),fmt0(t.rateEst),fmt0(t.payLeft)]);
+    t.work,fmt1(t.left)]);
   return `<h2>לו"ז</h2>
   <div class="row noprint">
     <label>מתאריך <input type="date" id="sf" value="${iso(from)}"></label>
@@ -326,9 +325,9 @@ function viewSched(){
     <button class="ghost" id="wk">שבוע קרוב</button>
     <button class="ghost" id="mo">עד סוף החודש</button>
   </div>
-  <div class="mute">${from.toLocaleDateString("he-IL")} – ${to.toLocaleDateString("he-IL")} · ${fmt1(r.h)} שעות · ${fmt0(r.p)} ₪</div>
-  ${table(["תאריך","יום","לקוח","שנה","סוג","סטטוס עבודה","שעות","₪ לשעה","שכר צפוי"],rows,
-    ["סה\"כ","","","","","",fmt1(r.h),"",fmt0(r.p)])}
+  <div class="mute">${from.toLocaleDateString("he-IL")} – ${to.toLocaleDateString("he-IL")} · ${fmt1(r.h)} שעות</div>
+  ${table(["תאריך","יום","לקוח","שנה","סוג","סטטוס עבודה","שעות מתוכננות"],rows,
+    ["סה\"כ","","","","","",fmt1(r.h)])}
   ${printBtn()}`;
 }
 function viewPay(){
@@ -336,20 +335,25 @@ function viewPay(){
   const key=S.payMonth||(d.months.length?d.months[d.months.length-1].key:"");
   const m=d.months.find(x=>x.key===key)||{rows:[],fee:0,mine:0,travel:0,due:0};
   const share=(r)=>d.tasks.filter(t=>t.name===r.name&&String(t.year)===String(r.year)).reduce((s,t)=>s+t.mine,0);
-  const rows=m.rows.map(r=>[r.name,r.year,r.date?r.date.toLocaleDateString("he-IL"):"",fmt0(r.fee),fmt0(share(r))]);
+  const extras=m.rows.reduce((s,r)=>s+(r.extra||0),0);
+  const rows=m.rows.map(r=>[r.name,r.year,r.date?r.date.toLocaleDateString("he-IL"):"",fmt0(r.fee),
+    r.extra?`<b>${fmt0(r.extra)}</b>`:"",fmt0(share(r))]);
   return `<h2>דרישת תשלום</h2>
   <div class="row noprint"><label>חודש
     <select id="pm">${d.months.map(x=>`<option ${x.key===key?"selected":""}>${x.key}</option>`).join("")}</select></label></div>
-  ${table(["לקוח","שנת מס","תאריך הגשה","שכ\"ט משרד","החלק שלך"],rows,
-    ["סה\"כ","","",fmt0(m.fee),fmt0(m.mine)])}
+  ${table(["לקוח","שנת מס","תאריך הגשה","שכ\"ט משרד","שכ\"ט נוסף לתיק","החלק שלך"],rows,
+    ["סה\"כ","","",fmt0(m.fee),fmt0(extras),fmt0(m.mine)])}
   <div class="cards" style="margin-top:8px">
+    ${card("שכ\"ט נוסף לתיק",fmt0(extras)+" ₪","כולו שלך")}
     ${card("החזר נסיעות",fmt0(m.travel)+" ₪","")}
     ${card("סה\"כ לגבייה",fmt0(m.due)+" ₪",key)}
   </div>
   <h2>מצטבר</h2>
-  ${table(["חודש","שכ\"ט משרד","החלק שלך","נסיעות","סה\"כ לגבייה"],
-    d.months.map(x=>[x.key,fmt0(x.fee),fmt0(x.mine),fmt0(x.travel),fmt0(x.due)]),
-    ["סה\"כ",fmt0(d.months.reduce((s,x)=>s+x.fee,0)),fmt0(d.months.reduce((s,x)=>s+x.mine,0)),
+  ${table(["חודש","שכ\"ט משרד","שכ\"ט נוסף","החלק שלך","נסיעות","סה\"כ לגבייה"],
+    d.months.map(x=>[x.key,fmt0(x.fee),fmt0(x.rows.reduce((s,r)=>s+(r.extra||0),0)),fmt0(x.mine),fmt0(x.travel),fmt0(x.due)]),
+    ["סה\"כ",fmt0(d.months.reduce((s,x)=>s+x.fee,0)),
+     fmt0(d.months.reduce((s,x)=>s+x.rows.reduce((a,r)=>a+(r.extra||0),0),0)),
+     fmt0(d.months.reduce((s,x)=>s+x.mine,0)),
      fmt0(d.months.reduce((s,x)=>s+x.travel,0)),fmt0(d.months.reduce((s,x)=>s+x.due,0))])}
   ${printBtn()}`;
 }
