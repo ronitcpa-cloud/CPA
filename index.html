@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מעקב 2026</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="מעקב 2026">
+<meta name="theme-color" content="#14303f">
+<link rel="manifest" href='data:application/manifest+json,{"name":"מעקב 2026","short_name":"מעקב 2026","start_url":".","display":"standalone","background_color":"%23f6f8f8","theme_color":"%2314303f"}'>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#14303f; --ink-2:#3f5d6b; --line:#d5dfe4; --bg:#f6f8f8; --panel:#ffffff;
+  --accent:#1f7a6b; --warn:#a85c1f; --bad:#a22f2f; --good:#1f7a4a;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:Heebo,"Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.5;-webkit-text-size-adjust:100%}
+header{background:var(--ink);color:#fff;padding:14px 16px 12px}
+header h1{margin:0;font-size:20px;font-weight:800;letter-spacing:-.2px}
+header .meta{font-size:12.5px;opacity:.78;margin-top:2px}
+nav{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:var(--panel);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-2);
+  border-radius:999px;padding:7px 14px;font:inherit;font-size:14px;cursor:pointer}
+nav button[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+main{padding:14px 12px 40px;max-width:900px;margin:0 auto}
+section[hidden]{display:none}
+h2{font-size:15px;font-weight:600;color:var(--ink-2);margin:22px 0 8px}
+h2:first-child{margin-top:4px}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.card .k{font-size:12.5px;color:var(--ink-2)}
+.card .v{font-size:22px;font-weight:800;margin-top:2px;letter-spacing:-.5px}
+.card .n{font-size:11.5px;color:var(--ink-2);margin-top:1px}
+.v.good{color:var(--good)} .v.bad{color:var(--bad)} .v.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;background:var(--panel);font-size:14px;
+  border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:#eef3f4;font-weight:600;font-size:12.5px;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:#f2f6f7}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+label{font-size:13px;color:var(--ink-2)}
+select,input{font:inherit;font-size:15px;padding:8px 10px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;color:var(--ink);max-width:100%}
+button.act{background:var(--accent);color:#fff;border:none;border-radius:8px;
+  padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;
+  padding:9px 14px;font:inherit;cursor:pointer}
+.flag{color:var(--bad);font-weight:600}
+.ok{color:var(--good)}
+.mute{color:var(--ink-2);font-size:13px}
+#load{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:10px}
+#load h2{margin-top:0}
+#msg{margin-top:10px;font-size:14px;min-height:20px}
+.bar{height:8px;background:#e6edee;border-radius:99px;overflow:hidden;margin-top:6px}
+.bar span{display:block;height:100%;background:var(--accent)}
+@media (min-width:640px){.cards{grid-template-columns:repeat(4,1fr)}}
+@media print{
+  nav,#loadWrap,.noprint{display:none!important}
+  header{background:#fff;color:#000;border-bottom:2px solid #000}
+  body{background:#fff}
+  section[hidden]{display:none}
+  table{font-size:11px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>מעקב 2026</h1>
+  <div class="meta" id="hdrMeta">לא נטענו נתונים</div>
+</header>
+
+<nav id="tabs" role="tablist">
+  <button role="tab" data-t="status" aria-selected="true">מצב נוכחי</button>
+  <button role="tab" data-t="open" aria-selected="false">פתוחים</button>
+  <button role="tab" data-t="sched" aria-selected="false">לו"ז</button>
+  <button role="tab" data-t="pay" aria-selected="false">דרישת תשלום</button>
+  <button role="tab" data-t="drill" aria-selected="false">לפי לקוח</button>
+  <button role="tab" data-t="file" aria-selected="false">קובץ</button>
+</nav>
+
+<main>
+<section id="s-file">
+  <div id="load">
+    <h2>טעינת הקובץ</h2>
+    <p class="mute">בוחרים את קובץ המעקב (מהמכשיר, מ־OneDrive או מ־Drive), מקלידים את הסיסמה, והאפליקציה קוראת אותו. הנתונים נשמרים במכשיר בלבד.</p>
+    <div class="row">
+      <input type="file" id="file" accept=".xlsx">
+    </div>
+    <div class="row">
+      <label for="pw">סיסמה</label>
+      <input type="password" id="pw" placeholder="סיסמת הקובץ" autocomplete="off">
+      <label><input type="checkbox" id="remember"> לזכור במכשיר</label>
+    </div>
+    <div class="row">
+      <button class="act" id="go">טען נתונים</button>
+      <button class="ghost" id="clear">מחיקת נתונים מהמכשיר</button>
+    </div>
+    <div class="bar" id="barWrap" hidden><span id="bar" style="width:0%"></span></div>
+    <div id="msg"></div>
+  </div>
+</section>
+
+<section id="s-status" hidden></section>
+<section id="s-open" hidden></section>
+<section id="s-sched" hidden></section>
+<section id="s-pay" hidden></section>
+<section id="s-drill" hidden></section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha512/0.8.0/sha512.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/aes-js/3.1.2/index.min.js"></script>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const fmt0=n=>(n==null||isNaN(n))?"":Math.round(n).toLocaleString("he-IL");
+const fmt1=n=>(n==null||isNaN(n))?"":(Math.round(n*10)/10).toLocaleString("he-IL");
+const DAYS=["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
+
+/* ---------- decryption (ECMA-376 agile) ---------- */
+function b64(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+function cat(){const p=[...arguments];let n=0;p.forEach(x=>n+=x.length);const o=new Uint8Array(n);let i=0;p.forEach(x=>{o.set(x,i);i+=x.length});return o;}
+function le32(n){const a=new Uint8Array(4);new DataView(a.buffer).setUint32(0,n,true);return a;}
+const H512=b=>new Uint8Array(sha512.arrayBuffer(b));
+function utf16(s){const a=new Uint8Array(s.length*2);const d=new DataView(a.buffer);for(let i=0;i<s.length;i++)d.setUint16(i*2,s.charCodeAt(i),true);return a;}
+function aesDec(key,iv,data){const c=new aesjs.ModeOfOperation.cbc(key,iv);return c.decrypt(data);}
+
+async function decrypt(buf,password,onProgress){
+  const cfb=XLSX.CFB.read(new Uint8Array(buf),{type:"array"});
+  const find=n=>{const f=cfb.FileIndex.find(x=>x.name===n);if(!f)throw new Error("stream "+n);return new Uint8Array(f.content);};
+  const infoRaw=find("EncryptionInfo"), pkg=find("EncryptedPackage");
+  const xml=new TextDecoder("utf-8").decode(infoRaw.slice(8));
+  if(!/agile|<encryption/i.test(xml)) throw new Error("סוג ההצפנה של הקובץ אינו נתמך");
+  const grab=(tag,attr)=>{const t=xml.match(new RegExp("<"+tag+"[^>]*>"));const m=t&&t[0].match(new RegExp(attr+'="([^"]*)"'));return m?m[1]:null;};
+  const kdSalt=b64(grab("keyData","saltValue"));
+  const ekTag=xml.match(/<p:encryptedKey[^>]*>/)[0];
+  const at=a=>{const m=ekTag.match(new RegExp(a+'="([^"]*)"'));return m?m[1]:null;};
+  const ekSalt=b64(at("saltValue")), spin=parseInt(at("spinCount"),10), kb=parseInt(at("keyBits"),10)/8;
+  const encKey=b64(at("encryptedKeyValue"));
+  let h=H512(cat(ekSalt,utf16(password)));
+  for(let i=0;i<spin;i++){
+    h=H512(cat(le32(i),h));
+    if(onProgress&&(i%5000===0)){onProgress(i/spin); await new Promise(r=>setTimeout(r));}
+  }
+  const blockKey=new Uint8Array([0x14,0x6e,0x0b,0xe7,0xab,0xac,0xd0,0xd6]);
+  const key=H512(cat(h,blockKey)).slice(0,kb);
+  const iv0=cat(ekSalt,new Uint8Array(16)).slice(0,16);
+  const secret=aesDec(key,iv0,encKey).slice(0,kb);
+  const total=Number(new DataView(pkg.buffer,pkg.byteOffset).getBigUint64(0,true));
+  const data=pkg.slice(8); const out=new Uint8Array(Math.ceil(data.length/4096)*4096);
+  for(let i=0;i*4096<data.length;i++){
+    const seg=data.slice(i*4096,(i+1)*4096);
+    const iv=H512(cat(kdSalt,le32(i))).slice(0,16);
+    out.set(aesDec(secret,iv,seg),i*4096);
+    if(onProgress&&(i%40===0)){onProgress(0.9+0.1*i*4096/data.length); await new Promise(r=>setTimeout(r));}
+  }
+  const res=out.slice(0,total);
+  if(!(res[0]===0x50&&res[1]===0x4b)) throw new Error("הסיסמה שגויה");
+  return res;
+}
+
+/* ---------- workbook -> data ---------- */
+function sheetMatrix(wb,name){
+  const ws=wb.Sheets[name]; if(!ws) return [];
+  return XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+}
+function excelDate(v){
+  if(v==null||v==="") return null;
+  if(v instanceof Date) return v;
+  if(typeof v==="number") return new Date(Math.round((v-25569)*86400000));
+  const d=new Date(v); return isNaN(d)?null:d;
+}
+function parseWorkbook(buf){
+  const wb=XLSX.read(buf,{type:"array",cellDates:false});
+  const T=sheetMatrix(wb,"ניהול משימות");
+  if(!T.length) throw new Error('לא נמצא גיליון "ניהול משימות" בקובץ');
+  const hdr=T[0].map(x=>(x==null?"":String(x).trim()));
+  const col=(...names)=>{for(const n of names){const i=hdr.findIndex(h=>h===n);if(i>=0)return i;}
+    for(const n of names){const i=hdr.findIndex(h=>h.indexOf(n)===0);if(i>=0)return i;} return -1;};
+  const c={name:col("שם מלא (משפחה + פרטי)","שם מלא"),year:col("שנה"),type:col("סוג"),
+    sched:col('לו"ז',"לוז"),work:col("סטטוס עבודה","סטטוס"),subm:col("סטטוס הגשה","הוגש"),
+    fee:col("שכר טרחה משרד"),est:col("צפי שעות"),act:col("שעות בפועל"),
+    rateEst:col("₪ לשעה לפי צפי","צפי לשעה"),rateAct:col("₪ לשעה בפועל","בפועל לשעה"),
+    left:col("יתרת שעות צפויה"),payLeft:col("שכר צפוי ליתרת השעות (₪)","שכר צפוי"),
+    mine:col("סהכ החלק שלך (₪)","סהכ החלק שלך"),bill:col("דרישת תשלום")};
+  const num=v=>typeof v==="number"?v:(v==null||v===""||isNaN(parseFloat(v))?0:parseFloat(v));
+  const tasks=[];
+  for(let i=1;i<T.length;i++){
+    const r=T[i]; if(!r) continue;
+    const nm=r[c.name]; if(nm==null||String(nm).trim()==="") continue;
+    tasks.push({name:String(nm).trim(),year:r[c.year],type:r[c.type]||"",
+      sched:excelDate(r[c.sched]),work:r[c.work]||"",subm:String(r[c.subm]||""),
+      fee:num(r[c.fee]),est:num(r[c.est]),act:num(r[c.act]),
+      rateEst:num(r[c.rateEst]),rateAct:num(r[c.rateAct]),
+      left:num(r[c.left]),payLeft:num(r[c.payLeft]),mine:num(r[c.mine]),
+      bill:String(r[c.bill]||"")});
+  }
+  const months=[];
+  wb.SheetNames.filter(n=>/^\d{4}-\d{2}$/.test(n)).sort().forEach(n=>{
+    const M=sheetMatrix(wb,n);
+    const cell=(r,cc)=>(M[r-1]&&M[r-1][cc-1]!=null)?M[r-1][cc-1]:null;
+    let hours=0;
+    for(let r=6;r<=70;r++){ if(String(cell(r,5)||"").indexOf("סהכ שעות")===0){hours=num(cell(r,6));break;} }
+    const rows=[];
+    for(let r=6;r<=25;r++){
+      const nme=cell(r,15); if(nme==null||String(nme).trim()==="") continue;
+      rows.push({name:String(nme).trim(),year:cell(r,16),date:excelDate(cell(r,17)),fee:num(cell(r,18))});
+    }
+    let gen=0;
+    for(let r=6;r<=70;r++){ if(String(cell(r,2)||"").trim()==="כלליות") gen+=num(cell(r,6)); }
+    months.push({key:n,hours:hours,general:gen,rows:rows,
+      fee:num(cell(26,18)),mine:num(cell(28,18)),travel:num(cell(29,18)),due:num(cell(30,18))});
+  });
+  const calc=wb.Sheets["מחשבון תיקים"];
+  const cv=a=>(calc&&calc[a]&&typeof calc[a].v==="number")?calc[a].v:null;
+  return {tasks,months,target:cv("E3")||200,hoursPerDay:cv("E12")||7,savedAt:Date.now()};
+}
+
+/* ---------- derived ---------- */
+const S={data:null,drillClient:"הכול",drillYear:"הכול"};
+const isOpen=t=>t.subm.indexOf("לטיפול")>=0;
+function totals(d){
+  const fee=d.tasks.reduce((s,t)=>s+t.fee,0);
+  const mine=d.tasks.reduce((s,t)=>s+t.mine,0);
+  const hours=d.months.reduce((s,m)=>s+m.hours,0);
+  const general=d.months.reduce((s,m)=>s+m.general,0);
+  const due=d.months.reduce((s,m)=>s+m.due,0);
+  const openFee=d.tasks.filter(isOpen).reduce((s,t)=>s+t.mine,0);
+  const unbilled=d.tasks.filter(t=>t.bill.indexOf("❗")>=0).length;
+  return {fee,mine,hours,general,due,openFee,unbilled,
+    rate:(hours-general)>0?mine/(hours-general):null};
+}
+function range(d,from,to){
+  const list=d.tasks.filter(t=>isOpen(t)&&t.sched&&t.sched>=from&&t.sched<=to);
+  return {h:list.reduce((s,t)=>s+t.left,0),p:list.reduce((s,t)=>s+t.payLeft,0),list};
+}
+const midnight=dt=>new Date(dt.getFullYear(),dt.getMonth(),dt.getDate());
+function businessDays(from,to){let n=0;const d=new Date(from);
+  while(d<=to){const w=d.getDay(); if(w>=0&&w<=4) n++; d.setDate(d.getDate()+1);} return n;}
+
+/* ---------- views ---------- */
+function card(k,v,n,cls){return `<div class="card"><div class="k">${k}</div>
+  <div class="v ${cls||""}">${v}</div>${n?`<div class="n">${n}</div>`:""}</div>`;}
+function table(head,rows,foot){
+  return `<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+  <tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr>`).join("")
+    :`<tr><td colspan="${head.length}" class="mute">אין נתונים להצגה</td></tr>`}</tbody>
+  ${foot?`<tfoot><tr>${foot.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr></tfoot>`:""}</table></div>`;
+}
+function printBtn(){return `<div class="row noprint"><button class="ghost" onclick="window.print()">שמירה כ־PDF / הדפסה</button></div>`;}
+
+function viewStatus(){
+  const d=S.data,t=totals(d),today=midnight(new Date());
+  const eom=new Date(today.getFullYear(),today.getMonth()+1,0);
+  const week=new Date(today); week.setDate(week.getDate()+6);
+  const rToday=range(d,today,today), rWeek=range(d,today,week), rMonth=range(d,today,eom);
+  const late=range(d,new Date(2000,0,1),new Date(today.getTime()-864e5));
+  const noDate=d.tasks.filter(x=>isOpen(x)&&!x.sched);
+  const cap=businessDays(today,eom)*d.hoursPerDay;
+  const free=cap-rMonth.h;
+  const rateCls=t.rate==null?"":(t.rate>=d.target?"good":"bad");
+  return `
+  <h2>מצב פיננסי</h2>
+  <div class="cards">
+    ${card("שכ\"ט משרד",fmt0(t.fee)+" ₪","כל התיקים")}
+    ${card("החלק שלך",fmt0(t.mine)+" ₪","כולל תוספות נטו")}
+    ${card("שעות עבודה",fmt1(t.hours),"מתוכן כלליות "+fmt1(t.general))}
+    ${card("₪ לשעה",fmt0(t.rate)||"—","ללא כלליות · יעד "+fmt0(d.target),rateCls)}
+    ${card("נדרש לגבייה",fmt0(t.due)+" ₪","דרישות חודשיות")}
+    ${card("טרם נדרש תשלום",t.unbilled,"תיקים שהוגשו",t.unbilled?"bad":"good")}
+    ${card("תיקים פתוחים",d.tasks.filter(isOpen).length,"צבר "+fmt0(t.openFee)+" ₪")}
+    ${card("שעות פנויות",fmt1(free),"עד סוף החודש",free<0?"bad":"")}
+  </div>
+  <h2>תכנון — שעות וכסף</h2>
+  ${table(["טווח","שעות","שכר צפוי","₪ לשעה"],[
+    ["היום",fmt1(rToday.h),fmt0(rToday.p)+" ₪",rToday.h?fmt0(rToday.p/rToday.h):""],
+    ["7 הימים הקרובים",fmt1(rWeek.h),fmt0(rWeek.p)+" ₪",rWeek.h?fmt0(rWeek.p/rWeek.h):""],
+    ["מהיום עד סוף החודש",fmt1(rMonth.h),fmt0(rMonth.p)+" ₪",rMonth.h?fmt0(rMonth.p/rMonth.h):""],
+    ["באיחור",fmt1(late.h),fmt0(late.p)+" ₪",""],
+    ["ללא תאריך",fmt1(noDate.reduce((s,x)=>s+x.left,0)),fmt0(noDate.reduce((s,x)=>s+x.payLeft,0))+" ₪",""],
+    ["קיבולת עד סוף החודש",fmt1(cap),businessDays(today,eom)+" ימי עסקים × "+d.hoursPerDay,""]
+  ])}
+  <h2>מגמה חודשית</h2>
+  ${table(["חודש","שעות","מתוכן כלליות","שכ\"ט משרד","החלק שלך","₪ לשעה"],
+    d.months.map(m=>[m.key,fmt1(m.hours),fmt1(m.general),fmt0(m.fee),fmt0(m.mine),
+      (m.hours-m.general)>0?fmt0(m.mine/(m.hours-m.general)):""]))}
+  ${printBtn()}`;
+}
+function viewOpen(){
+  const d=S.data;
+  const list=d.tasks.filter(isOpen).sort((a,b)=>(a.sched?a.sched:new Date(2100,0,1))-(b.sched?b.sched:new Date(2100,0,1)));
+  const rows=list.map(t=>[t.name,t.year,t.type,t.work,t.sched?t.sched.toLocaleDateString("he-IL"):"—",
+    fmt1(t.est),fmt1(t.act),fmt1(t.left),fmt0(t.fee),fmt0(t.mine),fmt0(t.rateEst),fmt0(t.payLeft)]);
+  const sum=(f)=>list.reduce((s,t)=>s+f(t),0);
+  return `<h2>תיקים פתוחים (${list.length})</h2>
+  ${table(["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי","בפועל","נותרו","שכ\"ט","החלק שלך","₪ לשעה","שכר ליתרה"],rows,
+    ["סה\"כ","","","","",fmt1(sum(t=>t.est)),fmt1(sum(t=>t.act)),fmt1(sum(t=>t.left)),
+     fmt0(sum(t=>t.fee)),fmt0(sum(t=>t.mine)),"",fmt0(sum(t=>t.payLeft))])}
+  ${printBtn()}`;
+}
+function viewSched(){
+  const d=S.data,today=midnight(new Date());
+  const from=S.schedFrom?new Date(S.schedFrom):today;
+  const to=S.schedTo?new Date(S.schedTo):new Date(today.getFullYear(),today.getMonth()+1,0);
+  const r=range(d,from,to);
+  const list=r.list.sort((a,b)=>a.sched-b.sched);
+  const iso=x=>x.toISOString().slice(0,10);
+  const rows=list.map(t=>[t.sched.toLocaleDateString("he-IL"),DAYS[t.sched.getDay()],t.name,t.year,t.type,
+    t.work,fmt1(t.left),fmt0(t.rateEst),fmt0(t.payLeft)]);
+  return `<h2>לו"ז</h2>
+  <div class="row noprint">
+    <label>מתאריך <input type="date" id="sf" value="${iso(from)}"></label>
+    <label>עד <input type="date" id="st" value="${iso(to)}"></label>
+    <button class="ghost" id="wk">שבוע קרוב</button>
+    <button class="ghost" id="mo">עד סוף החודש</button>
+  </div>
+  <div class="mute">${from.toLocaleDateString("he-IL")} – ${to.toLocaleDateString("he-IL")} · ${fmt1(r.h)} שעות · ${fmt0(r.p)} ₪</div>
+  ${table(["תאריך","יום","לקוח","שנה","סוג","סטטוס עבודה","שעות","₪ לשעה","שכר צפוי"],rows,
+    ["סה\"כ","","","","","",fmt1(r.h),"",fmt0(r.p)])}
+  ${printBtn()}`;
+}
+function viewPay(){
+  const d=S.data;
+  const key=S.payMonth||(d.months.length?d.months[d.months.length-1].key:"");
+  const m=d.months.find(x=>x.key===key)||{rows:[],fee:0,mine:0,travel:0,due:0};
+  const share=(r)=>d.tasks.filter(t=>t.name===r.name&&String(t.year)===String(r.year)).reduce((s,t)=>s+t.mine,0);
+  const rows=m.rows.map(r=>[r.name,r.year,r.date?r.date.toLocaleDateString("he-IL"):"",fmt0(r.fee),fmt0(share(r))]);
+  return `<h2>דרישת תשלום</h2>
+  <div class="row noprint"><label>חודש
+    <select id="pm">${d.months.map(x=>`<option ${x.key===key?"selected":""}>${x.key}</option>`).join("")}</select></label></div>
+  ${table(["לקוח","שנת מס","תאריך הגשה","שכ\"ט משרד","החלק שלך"],rows,
+    ["סה\"כ","","",fmt0(m.fee),fmt0(m.mine)])}
+  <div class="cards" style="margin-top:8px">
+    ${card("החזר נסיעות",fmt0(m.travel)+" ₪","")}
+    ${card("סה\"כ לגבייה",fmt0(m.due)+" ₪",key)}
+  </div>
+  <h2>מצטבר</h2>
+  ${table(["חודש","שכ\"ט משרד","החלק שלך","נסיעות","סה\"כ לגבייה"],
+    d.months.map(x=>[x.key,fmt0(x.fee),fmt0(x.mine),fmt0(x.travel),fmt0(x.due)]),
+    ["סה\"כ",fmt0(d.months.reduce((s,x)=>s+x.fee,0)),fmt0(d.months.reduce((s,x)=>s+x.mine,0)),
+     fmt0(d.months.reduce((s,x)=>s+x.travel,0)),fmt0(d.months.reduce((s,x)=>s+x.due,0))])}
+  ${printBtn()}`;
+}
+function viewDrill(){
+  const d=S.data;
+  const clients=[...new Set(d.tasks.map(t=>t.name))].sort((a,b)=>a.localeCompare(b,"he"));
+  const years=[...new Set(d.tasks.map(t=>t.year).filter(y=>y!=null))].sort();
+  const sel=d.tasks.filter(t=>(S.drillClient==="הכול"||t.name===S.drillClient)&&
+    (S.drillYear==="הכול"||String(t.year)===String(S.drillYear)));
+  const sum=f=>sel.reduce((s,t)=>s+f(t),0);
+  const act=sum(t=>t.act), est=sum(t=>t.est), mine=sum(t=>t.mine);
+  const rows=sel.sort((a,b)=>(b.year||0)-(a.year||0)).map(t=>[t.name,t.year,t.type,t.subm,
+    fmt1(t.est),fmt1(t.act),fmt0(t.fee),fmt0(t.mine),fmt0(t.rateAct),
+    t.bill.indexOf("❗")>=0?`<span class="flag">${t.bill}</span>`:(t.bill.indexOf("✓")>=0?`<span class="ok">${t.bill}</span>`:t.bill)]);
+  return `<h2>לפי לקוח ושנה</h2>
+  <div class="row noprint">
+    <label>לקוח <select id="dc"><option>הכול</option>${clients.map(c=>`<option ${c===S.drillClient?"selected":""}>${c}</option>`).join("")}</select></label>
+    <label>שנה <select id="dy"><option>הכול</option>${years.map(y=>`<option ${String(y)===String(S.drillYear)?"selected":""}>${y}</option>`).join("")}</select></label>
+  </div>
+  <div class="cards">
+    ${card("תיקים",sel.length,"")}
+    ${card("שעות בפועל",fmt1(act),"צפי "+fmt1(est))}
+    ${card("החלק שלך",fmt0(mine)+" ₪","")}
+    ${card("₪ לשעה בפועל",act>0?fmt0(mine/act):"—",est>0?"לפי צפי "+fmt0(mine/est):"")}
+  </div>
+  ${table(["לקוח","שנה","סוג","סטטוס הגשה","צפי","בפועל","שכ\"ט","החלק שלך","₪ לשעה","דרישת תשלום"],rows)}
+  ${printBtn()}`;
+}
+
+function render(){
+  if(!S.data) return;
+  $("#s-status").innerHTML=viewStatus();
+  $("#s-open").innerHTML=viewOpen();
+  $("#s-sched").innerHTML=viewSched();
+  $("#s-pay").innerHTML=viewPay();
+  $("#s-drill").innerHTML=viewDrill();
+  const t=new Date(S.data.savedAt);
+  $("#hdrMeta").textContent="נטען בתאריך "+t.toLocaleDateString("he-IL")+" "+t.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});
+  const sf=$("#sf"), st=$("#st");
+  if(sf) sf.onchange=e=>{S.schedFrom=e.target.value;render();};
+  if(st) st.onchange=e=>{S.schedTo=e.target.value;render();};
+  const wk=$("#wk"), mo=$("#mo");
+  if(wk) wk.onclick=()=>{const d=midnight(new Date());const e=new Date(d);e.setDate(e.getDate()+6);
+    S.schedFrom=d.toISOString().slice(0,10);S.schedTo=e.toISOString().slice(0,10);render();};
+  if(mo) mo.onclick=()=>{const d=midnight(new Date());const e=new Date(d.getFullYear(),d.getMonth()+1,0);
+    S.schedFrom=d.toISOString().slice(0,10);S.schedTo=e.toISOString().slice(0,10);render();};
+  const pm=$("#pm"); if(pm) pm.onchange=e=>{S.payMonth=e.target.value;render();};
+  const dc=$("#dc"), dy=$("#dy");
+  if(dc) dc.onchange=e=>{S.drillClient=e.target.value;render();};
+  if(dy) dy.onchange=e=>{S.drillYear=e.target.value;render();};
+}
+function tab(name){
+  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.t===name));
+  ["status","open","sched","pay","drill","file"].forEach(n=>{$("#s-"+n).hidden=(n!==name);});
+}
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>tab(b.dataset.t));
+
+/* ---------- load / store ---------- */
+const KEY="maakav2026-data", PKEY="maakav2026-pw";
+function save(d){try{localStorage.setItem(KEY,JSON.stringify(d));}catch(e){}}
+function load(){try{const s=localStorage.getItem(KEY);if(!s)return null;const d=JSON.parse(s);
+  d.tasks.forEach(t=>t.sched=t.sched?new Date(t.sched):null);
+  d.months.forEach(m=>m.rows.forEach(r=>r.date=r.date?new Date(r.date):null));
+  return d;}catch(e){return null;}}
+$("#go").onclick=async()=>{
+  const f=$("#file").files[0], pw=$("#pw").value;
+  const msg=$("#msg");
+  if(!f){msg.textContent="צריך לבחור קובץ.";return;}
+  msg.textContent="קורא את הקובץ…"; $("#barWrap").hidden=false;
+  try{
+    const buf=await f.arrayBuffer();
+    const head=new Uint8Array(buf.slice(0,2));
+    let data=new Uint8Array(buf);
+    if(!(head[0]===0x50&&head[1]===0x4b)){
+      if(!pw){msg.textContent="הקובץ מוגן בסיסמה. צריך להקליד אותה.";return;}
+      msg.textContent="מפענח את הקובץ… (כמה שניות)";
+      data=await decrypt(buf,pw,p=>{$("#bar").style.width=Math.round(p*100)+"%";});
+    }
+    const parsed=parseWorkbook(data);
+    const empty=parsed.tasks.every(t=>t.fee===0&&t.act===0)||parsed.months.every(m=>m.hours===0);
+    if(empty){msg.innerHTML='<span class="flag">הקובץ נשמר בלי ערכים מחושבים. פתחי אותו ב-Excel, שמרי, וטעני שוב.</span>';return;}
+    S.data=parsed; save(parsed);
+    if($("#remember").checked) localStorage.setItem(PKEY,pw); else localStorage.removeItem(PKEY);
+    msg.innerHTML='<span class="ok">הנתונים נטענו.</span> '+parsed.tasks.length+" תיקים, "+parsed.months.length+" חודשים.";
+    render(); tab("status");
+  }catch(e){
+    msg.innerHTML='<span class="flag">'+(e.message||"הקובץ לא נקרא")+"</span>";
+  }finally{$("#barWrap").hidden=true;$("#bar").style.width="0%";}
+};
+$("#clear").onclick=()=>{localStorage.removeItem(KEY);localStorage.removeItem(PKEY);
+  S.data=null;$("#hdrMeta").textContent="לא נטענו נתונים";$("#msg").textContent="הנתונים נמחקו מהמכשיר.";};
+window.addEventListener("DOMContentLoaded",()=>{
+  const pw=localStorage.getItem(PKEY); if(pw){$("#pw").value=pw;$("#remember").checked=true;}
+  const d=load();
+  if(d){S.data=d;render();tab("status");} else {tab("file");}
+});
+</script>
+</body>
+</html>
