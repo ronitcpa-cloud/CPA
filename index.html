@@ -145,6 +145,12 @@ function monthsList(){
   if(!s.size) s.add(iso(today()).slice(0,7));
   return [...s].sort();
 }
+function defaultMonth(){
+  const ms=monthsList(), cur=iso(today()).slice(0,7);
+  if(ms.includes(cur)) return cur;
+  const withData=ms.filter(m=>DB.bills.some(b=>b.month===m)||DB.time.some(t=>monthOf(t.date)===m));
+  return withData.length?withData[withData.length-1]:ms[ms.length-1];
+}
 function monthSummary(m){
   const bills=DB.bills.filter(b=>b.month===m);
   const fee=bills.reduce((s,b)=>s+num(b.fee),0), extra=bills.reduce((s,b)=>s+num(b.extra),0);
@@ -438,7 +444,7 @@ function taskForm(t){
   </div></div>`;
 }
 function viewTime(){
-  const m=S.timeMonth||monthsList().slice(-1)[0];
+  const m=S.timeMonth||defaultMonth();
   const list=DB.time.filter(x=>monthOf(x.date)===m).sort((a,b)=>a.date<b.date?1:-1);
   const tot=list.reduce((s,x)=>s+num(x.hours),0);
   return `<h2>יומן שעות</h2>
@@ -471,7 +477,7 @@ function timeForm(x){
   </div></div>`;
 }
 function viewBills(){
-  const months=monthsList(), m=S.billMonth||months[months.length-1];
+  const months=monthsList(), m=S.billMonth||defaultMonth();
   const s=monthSummary(m), tr=DB.travel.find(x=>x.month===m)||{month:m,days:0,km:0,rate:DB.settings.kmRate};
   const rows=s.bills.map(b=>{const t=b.taskId?taskById(b.taskId):null;
     return [clientName(b.clientId||(t&&t.clientId)),b.year||(t&&t.year)||"",heDate(b.date),
@@ -503,7 +509,7 @@ function viewBills(){
 }
 function billForm(b,free){
   const open=DB.tasks.filter(t=>!billedTask(t.id)||((b&&b.taskId)===t.id));
-  b=b||{id:"",month:S.billMonth||monthsList().slice(-1)[0],taskId:"",clientId:"",year:"",
+  b=b||{id:"",month:S.billMonth||defaultMonth(),taskId:"",clientId:"",year:"",
     date:iso(today()),fee:0,extra:0,amount:"",note:""};
   return `<div class="panel"><div class="grid2">
     ${free?`<label>לקוח<select id="bClient">${clientOpts(b.clientId)}</select></label>
@@ -547,7 +553,7 @@ function viewReports(){
         ["סה\"כ","","","","","",f1(list.reduce((s,t)=>s+taskRemaining(t),0))]);
     }
     if(r==="pay"){
-      const ms=monthsList(), lo=S.pf&&ms.includes(S.pf)?S.pf:ms[ms.length-1], hi=S.pt&&ms.includes(S.pt)?S.pt:lo;
+      const ms=monthsList(), lo=S.pf&&ms.includes(S.pf)?S.pf:defaultMonth(), hi=S.pt&&ms.includes(S.pt)?S.pt:lo;
       const a=lo<=hi?lo:hi, b=lo<=hi?hi:lo;
       const sel=ms.filter(m=>m>=a&&m<=b).map(monthSummary);
       const sum=f=>sel.reduce((s,x)=>s+f(x),0);
@@ -653,7 +659,7 @@ window.editBill=id=>{const b=DB.bills.find(t=>t.id===id);renderAll();
   const box=$("#billForm");box.innerHTML=billForm(b,!b.taskId);wireBillForm(b,!b.taskId);box.scrollIntoView({block:"center"});};
 window.renameClient=id=>{const c=DB.clients.find(c=>c.id===id);const n=prompt("שם הלקוח:",c.name);
   if(n&&n.trim()){c.name=n.trim();saveLocal();renderAll();toast("השם עודכן");}};
-window.S=S;window.renderAll=()=>renderAll();
+window.S=S;
 function wireTaskForm(t){
   $("#fCancel").onclick=()=>{$("#taskForm").innerHTML="";};
   $("#fSave").onclick=()=>{
@@ -714,7 +720,7 @@ function wire(){
   if(el("bM")) el("bM").onchange=e=>{S.billMonth=e.target.value;renderAll();};
   if(el("bAdd")) el("bAdd").onclick=()=>{const box=$("#billForm");box.innerHTML=billForm(null,false);wireBillForm(null,false);};
   if(el("bFree")) el("bFree").onclick=()=>{const box=$("#billForm");box.innerHTML=billForm(null,true);wireBillForm(null,true);};
-  if(el("trSave")) el("trSave").onclick=()=>{const m=S.billMonth||monthsList().slice(-1)[0];
+  if(el("trSave")) el("trSave").onclick=()=>{const m=S.billMonth||defaultMonth();
     let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m};DB.travel.push(t);}
     t.days=+$("#trD").value||0;t.km=+$("#trK").value||0;t.rate=+$("#trR").value||DB.settings.kmRate;
     saveLocal();renderAll();toast("נסיעות עודכנו");};
