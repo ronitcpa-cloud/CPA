@@ -624,6 +624,17 @@ function taskForm(t){
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
     <label style="grid-column:1/-1">הערות<input id="fNotes" value="${esc(t.notes||"")}"></label>
   </div>
+  ${t.id?(()=>{const act=taskHours(t.id), mine=taskMine(t), ent=DB.time.filter(x=>x.taskId===t.id).sort((a,b)=>a.date<b.date?1:-1);
+    const pl=plannedFor(t.id);
+    return `<div class="panel" style="margin:6px 0;padding:8px 10px">
+      <b>ביצוע בפועל</b><br>
+      שעות שבוצעו: <b style="font-size:16px">${f1(act)}</b> · צפי ${f1(t.est)} · מתוכנן קדימה ${f1(pl)}
+      ${act>0?` · ₪ לשעה בפועל <b>${f0(mine/act)}</b>`:""}
+      ${billedTask(t.id)?' · <span class="ok">כבר בדרישת תשלום</span>':(t.noBill?' · <span class="mute">מסומן לא לגבייה</span>':' · <span class="flag">טרם נדרש תשלום</span>')}
+      ${ent.length?`<details><summary>פירוט ${ent.length} רישומי שעות</summary>
+        ${table(["תאריך","שעות","מקום","תיאור"],ent.map(x=>[heDate(x.date),f1(x.hours),x.office?"משרד":"בית",esc(x.desc||"")]))}
+      </details>`:'<div class="mute">לא נרשמו שעות למשימה הזו</div>'}
+    </div>`;})():""}
   <div id="goNo" class="panel" style="margin:6px 0;padding:8px 10px">${num(t.est)>0?("₪ לשעה צפוי: "+f0(taskMine(t)/num(t.est))+" · יעד "+f0(DB.settings.target)):""}</div>
   <div class="row">
     <button class="act" id="fSave">שמירה</button>
@@ -791,6 +802,7 @@ function billForm(b,free){
     <button class="act" id="bSave">שמירה</button><button class="ghost" id="bCancel">ביטול</button>
     ${b.id?`<button class="ghost danger" id="bDel">מחיקה</button>`:""}
   </div>
+  <div id="billInfo" class="mute"></div>
   <div class="mute">אם משאירים את הסכום הידני ריק — הסכום שלך = שליש משכ"ט המשרד ועוד שכ"ט נוסף.</div></div>`;
 }
 function viewReports(){
@@ -1044,9 +1056,19 @@ function wireBillForm(b,free){
     if(i>=0) DB.bills[i]=o; else DB.bills.push(o);
     S.billMonth=o.month; saveLocal();renderAll();toast("נשמר בדרישת התשלום");};
   if($("#bDel")) $("#bDel").onclick=()=>{DB.bills=DB.bills.filter(x=>x.id!==b.id);saveLocal();renderAll();toast("נמחק");};
+  const info=()=>{const box=$("#billInfo"); if(!box) return;
+    const ts2=$("#bTask"); const t=ts2?taskById(ts2.value):(b&&b.taskId?taskById(b.taskId):null);
+    if(!t){box.innerHTML="";return;}
+    const act=taskHours(t.id), amt=(+$("#bFee").value||0)*DB.settings.share+(+$("#bExtra").value||0);
+    const man=$("#bAmt").value===""?null:+$("#bAmt").value;
+    const fin=man==null?amt:man;
+    box.innerHTML=`<b>שעות בפועל במשימה: ${f1(act)}</b> · צפי ${f1(t.est)} · סטטוס ${esc(t.submit)}`+
+      (act>0?` · ₪ לשעה לפי הסכום כאן: <b>${f0(fin/act)}</b> (יעד ${f0(DB.settings.target)})`:" · לא נרשמו שעות");};
   const ts=$("#bTask");
-  if(ts) ts.onchange=()=>{const t=taskById(ts.value);if(!t)return;
-    $("#bFee").value=num(t.fee);$("#bExtra").value=num(t.extra);};
+  if(ts) ts.onchange=()=>{const t=taskById(ts.value);if(!t){info();return;}
+    $("#bFee").value=num(t.fee);$("#bExtra").value=num(t.extra);info();};
+  ["bFee","bExtra","bAmt"].forEach(id=>{const e=$("#"+id); if(e) e.oninput=info;});
+  info();
 }
 function wire(){
   const el=id=>$("#"+id);
@@ -1144,7 +1166,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.1.0";
+const VER="3.3.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
