@@ -345,6 +345,39 @@ async function driveSave(silent){
     setHdr();
   }catch(e){ if(e.message==="auth"){gAuth(()=>driveSave(silent));return;} dInfo("השמירה נכשלה: "+e.message,true);}
 }
+let syncBusy=false, lastSync=0;
+function gAuthSilent(cb){
+  if(!gReady()) return;
+  google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
+    callback:r=>{ if(r&&r.access_token){drive.token=r.access_token; cb&&cb(true);} else cb&&cb(false); }
+  }).requestAccessToken({prompt:""});
+}
+async function driveSync(manual){
+  if(syncBusy) return; if(!drive.auto&&!manual) return;
+  if(!gReady()) return;
+  if(!drive.token){ if(!manual){ gAuthSilent(ok=>{ if(ok) driveSync(false); }); return; } gAuth(()=>driveSync(true)); return; }
+  syncBusy=true;
+  try{
+    let st=dState();
+    if(!st.dataId){
+      const q=encodeURIComponent("name='ronit-cpa-data.json' and trashed=false");
+      const r=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id,modifiedTime)");
+      const j=await r.json();
+      if(j.files&&j.files.length){ dSave({dataId:j.files[0].id}); st=dState(); }
+      else { await driveSave(true); syncBusy=false; setHdr(); return; }
+    }
+    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st.dataId+"?alt=media");
+    const remote=await r.json();
+    const rUp=num(remote&&remote.updated), lUp=num(DB.updated);
+    if(rUp>lUp+1000){ DB=Object.assign(DB,remote); DB.plans=DB.plans||[]; DB.offDays=DB.offDays||[];
+      DB.officeDates=DB.officeDates||[]; migrate();
+      try{localStorage.setItem(LS,SKEY?("ENC1:"+encryptStr(JSON.stringify(DB),SKEY)):JSON.stringify(DB));}catch(e){}
+      renderAll(); toast("עודכן מהדרייב"); }
+    else if(lUp>rUp+1000){ await driveSave(true); }
+    dSave({synced:Date.now()}); lastSync=Date.now(); setHdr();
+  }catch(e){ if(e.message==="auth"){drive.token=null;} }
+  syncBusy=false;
+}
 async function driveLoad(){
   try{
     if(!drive.token){gAuth(driveLoad);return;}
@@ -808,8 +841,7 @@ function viewTime(){
   <h2>ימי עבודה מהמשרד — ${m}</h2>
   <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
   <div class="row noprint"><button class="act" id="ofSheet">עדכון מדוח הנוכחות (יוני–ספטמבר)</button>
-    <button class="ghost" id="ofPaste">הדבקת נוכחות</button></div>
-  <div id="ofPasteBox"></div>
+</div>
   <div class="row noprint"><button class="ghost" id="ofAuto">מילוי אוטומטי לפי מספר ימי הנסיעות (${(()=>{const t=DB.travel.find(x=>x.month===m);return t&&t.days!=null&&t.days!==""?num(t.days):0;})()})</button>
     <button class="ghost" id="ofClear">ניקוי החודש</button></div>
   <div class="row">${(()=>{const [Y,M]=m.split("-").map(Number); const last=new Date(Y,M,0).getDate(); let out="";
@@ -1018,9 +1050,11 @@ function viewData(){
   const st=dState();
   return `<h2>נתונים וגיבוי</h2>
   <div class="panel">
-    <div class="row"><button class="act" id="dSaveBtn">שמירה לדרייב</button>
+    <div class="row"><button class="act" id="dSyncBtn">🔄 סנכרון עכשיו</button>
+      <button class="ghost" id="dSaveBtn">שמירה לדרייב</button>
       <button class="ghost" id="dLoadBtn">טעינה מהדרייב</button>
-      <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> שמירה אוטומטית</label></div>
+      <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> סנכרון אוטומטי</label></div>
+    <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
   </div>
   <h2>ייבוא ראשוני מקובץ האקסל</h2>
@@ -1065,6 +1099,7 @@ function viewData(){
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
+    <label class="ghost" style="cursor:pointer">טעינת גיבוי JSON<input type="file" id="jsonIn" accept=".json" style="display:none"></label>
     <button class="ghost" id="xlsxOut">ייצוא לאקסל</button></div></div>`;
 }
 
@@ -1300,30 +1335,6 @@ function wire(){
     months.forEach(m=>{let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(t);}
       t.days=preset.filter(d=>monthOf(d)===m).length;});
     saveLocal();renderAll();showTab("time");toast("ימי המשרד עודכנו לפי דוח הנוכחות");};
-  if(el("ofPaste")) el("ofPaste").onclick=()=>{
-    const box=$("#ofPasteBox");
-    box.innerHTML=`<div class="panel"><div class="mute">להדביק שורות מדוח הנוכחות. כל שורה: תאריך ואחריו מיקום (משרד / בית).</div>
-      <textarea id="ofText" rows="7" style="width:100%" placeholder="05/07/26 משרד 11:00 18:30 5.0"></textarea>
-      <div class="row"><button class="act" id="ofGo">עדכון</button><button class="ghost" id="ofCancel">ביטול</button></div>
-      <div id="ofMsg" class="mute"></div></div>`;
-    $("#ofCancel").onclick=()=>{box.innerHTML="";};
-    $("#ofGo").onclick=()=>{
-      const lines=($("#ofText").value||"").split(/\n/).map(x=>x.trim()).filter(Boolean);
-      const found=[], months=new Set();
-      lines.forEach(l=>{
-        const m=l.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/); if(!m) return;
-        let y=+m[3]; if(y<100) y+=2000;
-        const k=y+"-"+pad2(+m[2])+"-"+pad2(+m[1]);
-        months.add(monthOf(k));
-        if(l.indexOf("משרד")>=0) found.push(k);
-      });
-      if(!months.size){$("#ofMsg").innerHTML='<span class="flag">לא זוהו תאריכים</span>';return;}
-      DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>!months.has(monthOf(d))),...found])];
-      [...months].forEach(m=>{let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(t);}
-        t.days=found.filter(d=>monthOf(d)===m).length;});
-      saveLocal();renderAll();showTab("time");
-      toast("עודכנו "+found.length+" ימי משרד ב-"+months.size+" חודשים");};
-  };
   if(el("ofAuto")) el("ofAuto").onclick=()=>{
     const m=S.timeMonth||defaultMonth();
     const t=DB.travel.find(x=>x.month===m); const n=t&&t.days!=null&&t.days!==""?num(t.days):0;
@@ -1419,6 +1430,7 @@ function wire(){
   if(el("clAdd")) el("clAdd").onclick=()=>{const n=$("#clNew").value.trim();if(!n)return;
     DB.clients.push({id:uid(),name:n,type:"",fileNo:$("#clNum").value.trim()});
     saveLocal();renderAll();showTab("clients");toast("לקוח נוסף");};
+  if(el("dSyncBtn")) el("dSyncBtn").onclick=()=>driveSync(true);
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
   if(el("dAuto")) el("dAuto").onchange=e=>{drive.auto=e.target.checked;};
@@ -1446,6 +1458,16 @@ function wire(){
   if(el("jsonOut")) el("jsonOut").onclick=()=>{
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
     a.download="cpa-backup-"+iso(today())+".json";a.click();};
+  if(el("jsonIn")) el("jsonIn").onchange=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    if(!confirm("טעינת הגיבוי תחליף את כל הנתונים במכשיר הזה. להמשיך?")){e.target.value="";return;}
+    try{ const j=JSON.parse(await f.text());
+      if(!j||!Array.isArray(j.tasks)) throw new Error("קובץ לא מתאים");
+      DB=Object.assign(DB,j); DB.plans=DB.plans||[]; DB.offDays=DB.offDays||[]; DB.officeDates=DB.officeDates||[];
+      migrate(); saveLocal(); renderAll(); showTab("status");
+      toast("הגיבוי נטען: "+DB.tasks.length+" משימות");
+    }catch(err){ toast("שגיאה: "+(err.message||"קובץ לא תקין")); }
+    e.target.value="";};
   if(el("impGo")) el("impGo").onclick=async()=>{
     const f=$("#impFile").files[0], pw=$("#impPw").value, msg=$("#impMsg");
     if(!f){msg.textContent="צריך לבחור קובץ";return;}
@@ -1467,10 +1489,11 @@ function wire(){
 }
 function setHdr(){
   const st=dState();
-  $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
+  const sync=st.synced?("מסונכרן "+new Date(st.synced).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})):"לא מסונכרן";
+  $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.16.0";
+const VER="3.18.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -1501,6 +1524,10 @@ function boot(){
   if(!ok){ showLock(); return; }
   if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
   renderAll();
+  setTimeout(()=>driveSync(false),1200);
+  window.addEventListener("focus",()=>{ if(Date.now()-lastSync>45000) driveSync(false); });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&Date.now()-lastSync>45000) driveSync(false); });
+  setInterval(()=>driveSync(false),120000);
 }
 function showLock(msg){
   const box=$("#lock"); box.style.display="flex";
