@@ -797,13 +797,15 @@ function billForm(b,free){
     <label>שכ"ט משרד<input id="bFee" type="number" value="${num(b.fee)}"></label>
     <label>שכ"ט נוסף שלך<input id="bExtra" type="number" value="${num(b.extra)}"></label>
     <label>סכום ידני (לא חובה)<input id="bAmt" type="number" value="${b.amount==null?"":b.amount}"></label>
+    <label>או תעריף לשעה<input id="bRate" type="number" placeholder="₪ לשעה"></label>
     <label style="grid-column:1/-1">הערה<input id="bNote" value="${esc(b.note||"")}"></label>
   </div><div class="row">
     <button class="act" id="bSave">שמירה</button><button class="ghost" id="bCancel">ביטול</button>
     ${b.id?`<button class="ghost danger" id="bDel">מחיקה</button>`:""}
   </div>
   <div id="billInfo" class="mute"></div>
-  <div class="mute">אם משאירים את הסכום הידני ריק — הסכום שלך = שליש משכ"ט המשרד ועוד שכ"ט נוסף.</div></div>`;
+  <div class="mute">אם משאירים את הסכום הידני ריק — הסכום שלך = שליש משכ"ט המשרד ועוד שכ"ט נוסף.
+  אפשר להזין סכום ידני, או תעריף לשעה שיוכפל בשעות שבוצעו בפועל.</div></div>`;
 }
 function viewReports(){
   const r=S.rep||"open";
@@ -1068,6 +1070,13 @@ function wireBillForm(b,free){
   if(ts) ts.onchange=()=>{const t=taskById(ts.value);if(!t){info();return;}
     $("#bFee").value=num(t.fee);$("#bExtra").value=num(t.extra);info();};
   ["bFee","bExtra","bAmt"].forEach(id=>{const e=$("#"+id); if(e) e.oninput=info;});
+  const rate=$("#bRate");
+  if(rate) rate.oninput=()=>{
+    const ts2=$("#bTask"); const t=ts2?taskById(ts2.value):(b&&b.taskId?taskById(b.taskId):null);
+    const act=t?taskHours(t.id):0, r=+rate.value||0;
+    if(!t||act<=0){toast("אין שעות בפועל במשימה");return;}
+    $("#bAmt").value=r>0?Math.round(r*act*100)/100:"";
+    info();};
   info();
 }
 function wire(){
@@ -1166,7 +1175,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.3.0";
+const VER="3.4.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
