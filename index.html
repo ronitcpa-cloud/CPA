@@ -114,6 +114,17 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
   <section id="s-data" hidden></section>
 </main>
 <div id="toast"></div>
+<div id="lock" style="position:fixed;inset:0;background:linear-gradient(140deg,#10306e,#1592e6);z-index:100;display:none;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:22px;width:min(360px,90vw);text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.2)">
+    <div style="font-weight:800;font-size:18px;color:#10306e">רונית פינץ ערוסי, רו״ח</div>
+    <div class="mute" id="lockMsg" style="margin:6px 0 12px">הקלידי סיסמה כדי להיכנס</div>
+    <input id="lockPw" type="password" style="width:100%;text-align:center" autocomplete="current-password">
+    <div class="row" style="justify-content:center;margin-top:10px">
+      <button class="act" id="lockGo">כניסה</button>
+      <button class="ghost" id="lockReset">שכחתי סיסמה</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://accounts.google.com/gsi/client" async defer onerror="window.GSI_BLOCKED=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -136,6 +147,25 @@ const monthOf=d=>d?String(d).slice(0,7):"";
 const num=v=>typeof v==="number"?v:(v==null||v===""||isNaN(parseFloat(v))?0:parseFloat(v));
 function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2200);}
 
+/* ============ lock ============ */
+const LKEY="cpa-lock";
+let SKEY=null;
+const lockCfg=()=>{try{return JSON.parse(localStorage.getItem(LKEY)||"null")}catch(e){return null}};
+const b64e=u8=>btoa(String.fromCharCode.apply(null,u8));
+const b64d=str=>{const b=atob(str),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;};
+const enc=new TextEncoder(), dec=new TextDecoder();
+function deriveKey(pw,salt){let h=new Uint8Array(sha512.arrayBuffer(pw+"|"+salt));
+  for(let i=0;i<2000;i++) h=new Uint8Array(sha512.arrayBuffer(h)); return h.slice(0,32);}
+function encryptStr(txt,key){
+  const data=enc.encode(txt); const pad=16-(data.length%16);
+  const buf=new Uint8Array(data.length+pad); buf.set(data); buf.fill(pad,data.length);
+  const iv=new Uint8Array(16); for(let i=0;i<16;i++) iv[i]=Math.floor(Math.random()*256);
+  const out=new aesjs.ModeOfOperation.cbc(key,iv).encrypt(buf);
+  return b64e(iv)+"."+b64e(out);}
+function decryptStr(blob,key){
+  const [iv,body]=blob.split("."); const out=new aesjs.ModeOfOperation.cbc(key,b64d(iv)).decrypt(b64d(body));
+  const pad=out[out.length-1]; return dec.decode(out.slice(0,out.length-pad));}
+
 /* ============ data ============ */
 const LS="cpa-system-v2";
 let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],
@@ -145,7 +175,9 @@ const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
 const TYPES=["דוח שנתי יחיד","דוח שנתי חברה","הצהרת הון","החזר מס","טיפול שוטף","אחר"];
 const WORK=["אצלי","פנימי","מול הלקוח","מוכן","אחר"];
 const SUBM=["לטיפול","הוגש","טופל","בוטל"];
-function saveLocal(){DB.updated=Date.now();try{localStorage.setItem(LS,JSON.stringify(DB));}catch(e){}
+function saveLocal(){DB.updated=Date.now();
+  try{const txt=JSON.stringify(DB);
+    localStorage.setItem(LS,SKEY?("ENC1:"+encryptStr(txt,SKEY)):txt);}catch(e){}
   if(drive.auto&&drive.token) driveSave(true);}
 function migrate(){
   let moved=0;
@@ -158,10 +190,12 @@ function migrate(){
   });
   return moved;
 }
-function loadLocal(){try{const s=localStorage.getItem(LS);if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
+function loadLocal(){try{let s=localStorage.getItem(LS);
+  if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
+  if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
   DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false},d.settings||{});
   DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];
-  DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();}}catch(e){}}
+  DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
 const clientName=id=>{const c=DB.clients.find(c=>c.id===id);return c?c.name:"—";};
 const taskById=id=>DB.tasks.find(t=>t.id===id);
 const taskHours=id=>DB.time.filter(x=>x.taskId===id).reduce((s,x)=>s+num(x.hours),0);
@@ -907,6 +941,18 @@ function viewData(){
     <div class="row"><button class="act" id="impGo">ייבוא (מחליף את כל הנתונים)</button></div>
     <div id="impMsg" class="mute"></div>
   </div>
+  <h2>אבטחה</h2>
+  <div class="panel">
+    <div class="mute">${lockCfg()?"הכניסה למערכת מוגנת בסיסמה. הנתונים נשמרים במכשיר מוצפנים.":"אין סיסמה. כל מי שפותח את האתר במחשב הזה רואה את הנתונים."}</div>
+    <div class="grid2" style="margin-top:6px">
+      ${lockCfg()?`<label>סיסמה נוכחית<input id="pwOld" type="password"></label>`:""}
+      <label>סיסמה חדשה<input id="pwNew" type="password"></label>
+      <label>אימות<input id="pwNew2" type="password"></label>
+    </div>
+    <div class="row"><button class="act" id="pwSet">${lockCfg()?"שינוי סיסמה":"קביעת סיסמה"}</button>
+      ${lockCfg()?`<button class="ghost danger" id="pwOff">ביטול הסיסמה</button>`:""}</div>
+    <div id="pwMsg" class="mute"></div>
+  </div>
   <h2>הגדרות</h2>
   <div class="panel"><div class="grid2">
     <label>החלק שלך משכ"ט<input id="sShare" type="number" step="0.01" value="${DB.settings.share}"></label>
@@ -1143,6 +1189,22 @@ function wire(){
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
   if(el("dAuto")) el("dAuto").onchange=e=>{drive.auto=e.target.checked;};
+  if(el("pwSet")) el("pwSet").onclick=()=>{
+    const cfg=lockCfg(), msg=$("#pwMsg");
+    const nw=$("#pwNew").value, nw2=$("#pwNew2").value;
+    if(cfg){ const old=$("#pwOld").value;
+      if(!old||b64e(deriveKey(old,cfg.salt))!==cfg.check){msg.innerHTML='<span class="flag">הסיסמה הנוכחית שגויה</span>';return;} }
+    if(!nw||nw.length<4){msg.innerHTML='<span class="flag">סיסמה של 4 תווים לפחות</span>';return;}
+    if(nw!==nw2){msg.innerHTML='<span class="flag">האימות לא תואם</span>';return;}
+    const salt=uid()+uid(); const key=deriveKey(nw,salt);
+    localStorage.setItem(LKEY,JSON.stringify({salt,check:b64e(key)}));
+    SKEY=key; saveLocal(); sessionStorage.setItem("cpa-unlocked","1"); renderAll(); showTab("data");
+    toast("הסיסמה נקבעה");};
+  if(el("pwOff")) el("pwOff").onclick=()=>{
+    const cfg=lockCfg(), old=($("#pwOld")||{}).value||"";
+    if(!cfg) return;
+    if(b64e(deriveKey(old,cfg.salt))!==cfg.check){$("#pwMsg").innerHTML='<span class="flag">הסיסמה הנוכחית שגויה</span>';return;}
+    localStorage.removeItem(LKEY); SKEY=null; saveLocal(); renderAll(); showTab("data"); toast("הסיסמה בוטלה");};
   if(el("sSave")) el("sSave").onclick=()=>{
     DB.settings.share=+$("#sShare").value||1/3;DB.settings.target=+$("#sTarget").value||200;
     DB.settings.targetNext=+$("#sNext").value||250;DB.settings.hoursPerDay=+$("#sHpd").value||7;
@@ -1175,7 +1237,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.4.0";
+const VER="3.5.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -1196,9 +1258,33 @@ function showTab(n){
   ["status","tasks","cal","time","bills","reports","clients","data"].forEach(x=>{$("#s-"+x).hidden=(x!==n);});
 }
 $$("#tabs button").forEach(b=>b.onclick=()=>showTab(b.dataset.t));
-loadLocal();
-if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
-renderAll();
+function boot(){
+  const ok=loadLocal();
+  if(!ok){ showLock(); return; }
+  if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
+  renderAll();
+}
+function showLock(msg){
+  const box=$("#lock"); box.style.display="flex";
+  if(msg) $("#lockMsg").innerHTML='<span class="flag">'+msg+'</span>';
+  setTimeout(()=>{const i=$("#lockPw"); i&&i.focus&&i.focus();},50);
+}
+function tryUnlock(){
+  const cfg=lockCfg(); if(!cfg) return;
+  const pw=$("#lockPw").value||"";
+  const key=deriveKey(pw,cfg.salt);
+  if(b64e(key)!==cfg.check){ $("#lockMsg").innerHTML='<span class="flag">סיסמה שגויה</span>'; return; }
+  SKEY=key; sessionStorage.setItem("cpa-unlocked","1");
+  $("#lock").style.display="none"; $("#lockPw").value="";
+  boot();
+}
+$("#lockGo").onclick=tryUnlock;
+$("#lockPw").addEventListener("keydown",e=>{if(e.key==="Enter")tryUnlock();});
+$("#lockReset").onclick=()=>{
+  if(!confirm("איפוס ימחק את הנתונים השמורים במחשב הזה. אם יש גיבוי בדרייב אפשר לטעון אותו אחרי הכניסה. להמשיך?"))return;
+  localStorage.removeItem(LS); localStorage.removeItem(LKEY); sessionStorage.removeItem("cpa-unlocked");
+  location.reload();};
+if(lockCfg()) showLock(); else boot();
 </script>
 </body>
 </html>
