@@ -566,18 +566,36 @@ function taskRow(t){
     `<button class="mini" onclick="editTask('${t.id}')">עריכה</button>`];
 }
 function viewTasks(){
-  const filt=S.taskFilter||"פתוחים";
+  const F=S.tf=S.tf||{status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:""};
   let list=DB.tasks.slice();
-  if(filt==="פתוחים") list=list.filter(t=>isOpen(t)&&taken(t));
-  else if(filt==="בבדיקה") list=list.filter(t=>t.decision==="בבדיקה");
-  else if(filt==="הוגשו") list=list.filter(t=>t.submit==="הוגש"||t.submit==="טופל");
-  else if(filt==="בוטלו") list=list.filter(t=>t.submit==="בוטל");
-  if(S.taskClient) list=list.filter(t=>t.clientId===S.taskClient);
+  if(F.status==="פתוחים") list=list.filter(t=>isOpen(t)&&taken(t));
+  else if(F.status!=="הכול") list=list.filter(t=>t.submit===F.status);
+  if(F.client) list=list.filter(t=>t.clientId===F.client);
+  if(F.year) list=list.filter(t=>String(t.year)===String(F.year));
+  if(F.type) list=list.filter(t=>t.type===F.type);
+  if(F.decision) list=list.filter(t=>(t.decision||"לקחתי")===F.decision);
+  if(F.work) list=list.filter(t=>t.work===F.work);
+  if(F.bill==="נדרש") list=list.filter(t=>billedTask(t.id));
+  else if(F.bill==="טרם נדרש") list=list.filter(t=>!billedTask(t.id)&&!t.noBill&&taken(t));
+  else if(F.bill==="לא לגבייה") list=list.filter(t=>t.noBill);
+  if(F.q){const q=F.q.trim();
+    if(q) list=list.filter(t=>(tName(t)+" "+(t.year||"")+" "+(t.type||"")+" "+(t.notes||"")).indexOf(q)>=0);}
   list.sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
+  const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
+  const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
   return `<h2>משימות (${list.length})</h2>
   <div class="row noprint">
-    <select id="tf">${opts(["פתוחים","בבדיקה","הוגשו","בוטלו","הכול"],filt)}</select>
-    <select id="tc"><option value="">כל הלקוחות</option>${clientOpts(S.taskClient)}</select>
+    <label>סטטוס הגשה<select id="fltStatus">${opts(["פתוחים","הכול",...SUBM],F.status)}</select></label>
+    <label>לקוח<select id="fltClient"><option value="">כל הלקוחות</option>${clientOpts(F.client)}</select></label>
+    ${sel("fltDecision","החלטה",DECIDE,F.decision)}
+    ${sel("fltYear","שנת מס",years,F.year)}
+    ${sel("fltType","מוצר",TYPES,F.type)}
+    ${sel("fltWork","סטטוס עבודה",WORK,F.work)}
+    ${sel("fltBill","דרישת תשלום",["נדרש","טרם נדרש","לא לגבייה"],F.bill)}
+    <label>חיפוש<input id="fltQ" value="${esc(F.q)}" placeholder="שם, מוצר, הערה" style="width:150px"></label>
+    <button class="ghost" id="fltClear">ניקוי</button>
+  </div>
+  <div class="row noprint">
     <button class="act" id="tAdd">+ משימה חדשה</button>
     <button class="ghost" id="tCheck">🔍 בדיקת כדאיות</button>
   </div>
@@ -597,13 +615,13 @@ function taskForm(t){
     <label>שנת מס<input id="fYear" type="number" value="${esc(t.year)}"></label>
     <label>סוג<select id="fType">${opts(TYPES,t.type)}</select></label>
     <label>החלטה<select id="fDec">${opts(DECIDE,t.decision||"לקחתי")}</select></label>
-    <label>גבייה<select id="fNoBill">${opts([{v:"yes",t:"לגבייה"},{v:"no",t:"לא לגבייה"}],t.noBill?"no":"yes")}</select></label>
-    <label>סטטוס עבודה<select id="fWork">${opts(WORK,t.work)}</select></label>
-    <label>סטטוס הגשה<select id="fSub">${opts(SUBM,t.submit)}</select></label>
+    <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">גבייה<select id="fNoBill">${opts([{v:"yes",t:"לגבייה"},{v:"no",t:"לא לגבייה"}],t.noBill?"no":"yes")}</select></label>
+    <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">סטטוס עבודה<select id="fWork">${opts(WORK,t.work)}</select></label>
+    <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">סטטוס הגשה<select id="fSub">${opts(SUBM,t.submit)}</select></label>
     <label>שכ"ט משרד<input id="fFee" type="number" value="${num(t.fee)}"></label>
     <label>תוספת נטו שלך<input id="fExtra" type="number" value="${num(t.extra)}"></label>
     <label>צפי שעות<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
-    <label>לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
+    <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
     <label style="grid-column:1/-1">הערות<input id="fNotes" value="${esc(t.notes||"")}"></label>
   </div>
   <div id="goNo" class="panel" style="margin:6px 0;padding:8px 10px">${num(t.est)>0?("₪ לשעה צפוי: "+f0(taskMine(t)/num(t.est))+" · יעד "+f0(DB.settings.target)):""}</div>
@@ -960,6 +978,10 @@ function wireTaskForm(t){
   $("#fCancel").onclick=()=>{$("#taskForm").innerHTML="";};
   const sel=$("#fClient"); const wrap=$("#newWrap");
   if(sel) sel.onchange=()=>{wrap.style.display=sel.value==="__new"?"":"none";};
+  const dec=$("#fDec");
+  const toggleDec=()=>{const hide=dec.value==="בבדיקה";
+    $$(".afterDec").forEach(e=>{e.style.display=hide?"none":"";});};
+  if(dec){dec.onchange=toggleDec;toggleDec();}
   const calc=()=>{const fee=+$("#fFee").value||0,ex=+$("#fExtra").value||0,es=+$("#fEst").value||0;
     const r=es>0?(fee*DB.settings.share+ex)/es:0;
     const y2=es>0?(fee*DB.settings.share+ex)/(es*(1+0.5)):0;
@@ -1028,11 +1050,14 @@ function wireBillForm(b,free){
 }
 function wire(){
   const el=id=>$("#"+id);
-  if(el("tf")) el("tf").onchange=e=>{S.taskFilter=e.target.value;renderAll();};
-  if(el("tc")) el("tc").onchange=e=>{S.taskClient=e.target.value;renderAll();};
+  const fmap={fltStatus:"status",fltClient:"client",fltDecision:"decision",fltYear:"year",
+    fltType:"type",fltWork:"work",fltBill:"bill"};
+  Object.entries(fmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.tf[key]=ev.target.value;renderAll();showTab("tasks");};});
+  if(el("fltQ")) el("fltQ").onchange=ev=>{S.tf.q=ev.target.value;renderAll();showTab("tasks");};
+  if(el("fltClear")) el("fltClear").onclick=()=>{S.tf={status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:""};renderAll();showTab("tasks");};
   if(el("tAdd")) el("tAdd").onclick=()=>{const box=$("#taskForm");box.innerHTML=taskForm(null);wireTaskForm(null);
     box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
-  if(el("tCheck")) el("tCheck").onclick=()=>{S.taskFilter="בבדיקה";renderAll();showTab("tasks");
+  if(el("tCheck")) el("tCheck").onclick=()=>{S.tf=Object.assign(S.tf||{},{status:"הכול",decision:"בבדיקה"});renderAll();showTab("tasks");
     const box=$("#taskForm");box.innerHTML=taskForm({id:"",clientId:"",prospect:" ",year:new Date().getFullYear()-1,
       type:"דוח שנתי יחיד",fee:0,extra:0,est:0,sched:"",work:"אצלי",submit:"לטיפול",notes:"",decision:"בבדיקה",noBill:false});
     wireTaskForm(null);
@@ -1119,7 +1144,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.0.0";
+const VER="3.1.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
