@@ -187,7 +187,7 @@ function decryptStr(blob,key){
 
 /* ============ data ============ */
 const LS="cpa-system-v2";
-let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],
+let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],
   settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il'},
   updated:null};
 const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
@@ -213,7 +213,8 @@ function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
   if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
   DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il'},d.settings||{});
-  DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];
+  DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];
+  DB.time.filter(x=>x.office&&x.date).forEach(x=>{if(!DB.officeDates.includes(x.date))DB.officeDates.push(x.date);});
   DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
 const clientName=id=>{const c=DB.clients.find(c=>c.id===id);return c?c.name:"—";};
 const taskById=id=>DB.tasks.find(t=>t.id===id);
@@ -260,7 +261,9 @@ function dayInfo(dt){
 }
 function businessDays(a,b){let n=0;const d=new Date(a);
   while(d<=b){if(!dayInfo(d).off)n++;d.setDate(d.getDate()+1);}return n;}
-function officeDays(m){return [...new Set(DB.time.filter(t=>monthOf(t.date)===m&&t.office).map(t=>t.date))].length;}
+const officeList=m=>(DB.officeDates||[]).filter(d=>monthOf(d)===m).sort();
+function officeDays(m){return officeList(m).length;}
+const isOfficeDay=d=>(DB.officeDates||[]).includes(d);
 const PAYWAYS=["העברה בנקאית","צ׳ק","אשראי","מזומן","ביט","קיזוז","אחר"];
 function billHours(b){ if(b.hours!=null&&b.hours!=="") return num(b.hours);
   return b.taskId?taskHours(b.taskId):0; }
@@ -393,7 +396,7 @@ const xdate=v=>{ if(v==null||v==="")return null;
 function importWorkbook(buf){
   const wb=XLSX.read(buf,{type:"array"});
   const M=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:null}):[];
-  const db={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],
+  const db={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],
     settings:Object.assign({},DB.settings),updated:Date.now()};
   const cl=M("לקוחות");
   const addClient=(name,type)=>{name=String(name||"").trim(); if(!name)return null;
@@ -724,12 +727,12 @@ function viewCal(){
   const cell=dt=>{
     if(!dt) return `<div></div>`;
     const k=iso(dt), inf=dayInfo(dt), ph=planHours(k), ah=actualOn(k);
-    const vac=DB.offDays.includes(k);
+    const vac=DB.offDays.includes(k), off=isOfficeDay(k);
     const chips=DB.plans.filter(p=>p.date===k).slice(0,3).map(p=>{const t=taskById(p.taskId);
       return `<div class="c">${esc(t?clientName(t.clientId):"—")} ${f1(p.hours)}</div>`;}).join("")
       +(ah?`<div class="c done">בפועל ${f1(ah)}</div>`:"");
     return `<div class="d ${vac?"vac":(inf.off?"off":"")} ${k===iso(today())?"today":""} ${k===S.calDay?"sel":""}" onclick="pickDay('${k}')">
-      <div class="n">${dt.getDate()}${inf.label?` <span class="t">${vac?"חופשה":inf.label}</span>`:""}</div>
+      <div class="n">${dt.getDate()}${off?' <span class="t">🏢</span>':""}${inf.label?` <span class="t">${vac?"חופשה":inf.label}</span>`:""}</div>
       ${ph?`<div class="t plan">מתוכנן ${f1(ph)}</div>`:""}${chips}</div>`;
   };
   const sel=S.calDay&&monthOf(S.calDay)===cur?S.calDay:null;
@@ -748,6 +751,7 @@ function viewCal(){
     <span><i style="background:#dff0fd;border:1px solid #a9d6f7"></i>מתוכנן</span>
     <span><i style="background:#e2e7fb;border:1px solid #bcc6f0"></i>בוצע בפועל</span>
     <span><i style="background:#f0ebf8;border:1px solid #d9cfec"></i>חופשה</span>
+    <span>🏢 יום משרד</span>
     <span><i style="background:#edf1f6;border:1px solid #cfe0f5"></i>שישי/שבת וחגים</span>
   </div>
   <div class="cal" style="margin-top:4px">
@@ -764,6 +768,7 @@ function dayPanel(k){
     <b>${heDate(k)} · ${DAYS[new Date(k).getDay()]}${inf.label?" · "+inf.label:""}</b>
     <div class="row">
       <button class="ghost" id="dOff">${DB.offDays.includes(k)?"ביטול סימון חופשה":"סמן כיום חופשה"}</button>
+      <button class="ghost" id="dOffice">${isOfficeDay(k)?"🏢 ביטול יום משרד":"🏢 סמן יום משרד"}</button>
       <span class="mute">מתוכנן ${f1(planHours(k))} · בפועל ${f1(actualOn(k))}</span>
     </div>
     ${ps.length?table(["משימה","שעות",""],ps.map(p=>{const t=taskById(p.taskId);
@@ -800,7 +805,14 @@ function viewTime(){
         t?`${t.year} ${t.type}`:"—",esc(x.desc||""),x.office?"משרד":"בית",f1(x.hours),
         `<button class="mini" onclick="editTime('${x.id}')">עריכה</button>`];}),
     ["סה\"כ","","","","","",f1(tot),""])}
-  <div class="mute">ימי משרד בחודש: ${officeDays(m)} — מהם מחושבות הנסיעות בדרישת התשלום.</div>
+  <h2>ימי עבודה מהמשרד — ${m}</h2>
+  <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
+  <div class="row">${(()=>{const [Y,M]=m.split("-").map(Number); const last=new Date(Y,M,0).getDate(); let out="";
+    for(let dd=1;dd<=last;dd++){const k=`${Y}-${pad2(M)}-${pad2(dd)}`; const inf=dayInfo(k);
+      if(inf.off&&!isOfficeDay(k)) continue;
+      out+=`<label style="border:1px solid var(--line);border-radius:8px;padding:3px 7px;background:${isOfficeDay(k)?"var(--accent-2)":"#fff"}">
+        <input type="checkbox" onchange="toggleOffice('${k}')" ${isOfficeDay(k)?"checked":""}> ${dd}/${M}</label>`;}
+    return out;})()}</div></div>
   ${printBtn()}`;
 }
 function timeForm(x){
@@ -842,11 +854,12 @@ function viewBills(){
   ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה","מצב","הערה",""],rows,totals)}
   <h2>נסיעות וסיכום</h2>
   <div class="panel noprint"><div class="grid2">
-    <label>ימי משרד (אוטומטי: ${officeDays(m)})<input id="trD" type="number" value="${tr.days==null||tr.days===""?officeDays(m):num(tr.days)}"></label>
+    <label>ימי משרד (מסומנים: ${officeDays(m)})<input id="trD" type="number" value="${tr.days==null||tr.days===""?officeDays(m):num(tr.days)}"></label>
     <label>ק"מ הלוך-חזור<input id="trK" type="number" value="${num(tr.km)}"></label>
     <label>תעריף לק"מ<input id="trR" type="number" step="0.1" value="${num(tr.rate||DB.settings.kmRate)}"></label>
     <label>החזר נסיעות<input value="${f0(s.travel)} ₪" disabled></label>
-  </div><div class="row"><button class="act" id="trSave">עדכון נסיעות</button></div></div>
+  </div><div class="mute">תאריכי משרד: ${officeList(m).map(d=>heDate(d)).join(" · ")||"טרם סומנו — אפשר לסמן במסך שעות או בלוח החודשי"}</div>
+  <div class="row"><button class="act" id="trSave">עדכון נסיעות</button></div></div>
   <div class="cards" style="margin-top:8px">
     ${card("סה\"כ חלקי",f0(s.mine)+" ₪","")}
     ${card("החזר נסיעות",f0(s.travel)+" ₪","")}
@@ -1120,6 +1133,9 @@ window.quickBill=id=>{const t=taskById(id); if(!t)return;
   const box=$("#billForm"); box.innerHTML=billForm(b,false); wireBillForm(b,false); box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.drill=k=>{S.drill=(S.drill===k?null:k);renderAll();showTab("status");
   const el=$("#drillBox"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
+window.toggleOffice=k=>{DB.officeDates=DB.officeDates||[];
+  if(isOfficeDay(k)) DB.officeDates=DB.officeDates.filter(x=>x!==k); else DB.officeDates.push(k);
+  saveLocal(); renderAll(); showTab("time");};
 window.pickDay=k=>{S.calDay=k;S.calMonth=monthOf(k);renderAll();showTab("cal");
   const el=$("#dayPanel"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
 window.planDel=id=>{DB.plans=DB.plans.filter(p=>p.id!==id);saveLocal();renderAll();showTab("cal");};
@@ -1272,6 +1288,10 @@ function wire(){
   if(el("pTask")) el("pTask").onchange=()=>{const t=taskById($("#pTask").value); if(!t)return;
     const av=availableFor(t); $("#pAvail").textContent="אפשר לתכנן עוד "+f1(av)+" שעות במשימה הזו";
     const h=$("#pHours"); h.max=av; if(+h.value>av) h.value=av;};
+  if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
+    DB.officeDates=DB.officeDates||[];
+    if(isOfficeDay(k)) DB.officeDates=DB.officeDates.filter(x=>x!==k); else DB.officeDates.push(k);
+    saveLocal();renderAll();showTab("cal");toast(isOfficeDay(k)?"סומן יום משרד":"הוסר סימון");};
   if(el("pAdd")) el("pAdd").onclick=()=>{const tid=$("#pTask").value; let h=+$("#pHours").value||0;
     const t=taskById(tid);
     if(!tid||!h){toast("צריך משימה ושעות");return;}
@@ -1402,7 +1422,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.13.1";
+const VER="3.14.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
