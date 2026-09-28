@@ -807,6 +807,8 @@ function viewTime(){
     ["סה\"כ","","","","","",f1(tot),""])}
   <h2>ימי עבודה מהמשרד — ${m}</h2>
   <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
+  <div class="row noprint"><button class="ghost" id="ofAuto">מילוי אוטומטי לפי מספר ימי הנסיעות (${(()=>{const t=DB.travel.find(x=>x.month===m);return t&&t.days!=null&&t.days!==""?num(t.days):0;})()})</button>
+    <button class="ghost" id="ofClear">ניקוי החודש</button></div>
   <div class="row">${(()=>{const [Y,M]=m.split("-").map(Number); const last=new Date(Y,M,0).getDate(); let out="";
     for(let dd=1;dd<=last;dd++){const k=`${Y}-${pad2(M)}-${pad2(dd)}`; const inf=dayInfo(k);
       if(inf.off&&!isOfficeDay(k)) continue;
@@ -1288,6 +1290,18 @@ function wire(){
   if(el("pTask")) el("pTask").onchange=()=>{const t=taskById($("#pTask").value); if(!t)return;
     const av=availableFor(t); $("#pAvail").textContent="אפשר לתכנן עוד "+f1(av)+" שעות במשימה הזו";
     const h=$("#pHours"); h.max=av; if(+h.value>av) h.value=av;};
+  if(el("ofAuto")) el("ofAuto").onclick=()=>{
+    const m=S.timeMonth||defaultMonth();
+    const t=DB.travel.find(x=>x.month===m); const n=t&&t.days!=null&&t.days!==""?num(t.days):0;
+    if(!n){toast("אין מספר ימים בדרישה לחודש הזה");return;}
+    const byDay={}; DB.time.filter(x=>monthOf(x.date)===m).forEach(x=>{byDay[x.date]=(byDay[x.date]||0)+num(x.hours);});
+    const days=Object.entries(byDay).filter(([d])=>!dayInfo(d).off).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([d])=>d);
+    if(!days.length){toast("אין ימים עם שעות בחודש הזה");return;}
+    DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>monthOf(d)!==m),...days])];
+    saveLocal();renderAll();showTab("time");toast("סומנו "+days.length+" ימים — אפשר לתקן ידנית");};
+  if(el("ofClear")) el("ofClear").onclick=()=>{const m=S.timeMonth||defaultMonth();
+    DB.officeDates=(DB.officeDates||[]).filter(d=>monthOf(d)!==m);
+    saveLocal();renderAll();showTab("time");toast("סימוני החודש נוקו");};
   if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
     DB.officeDates=DB.officeDates||[];
     if(isOfficeDay(k)) DB.officeDates=DB.officeDates.filter(x=>x!==k); else DB.officeDates.push(k);
@@ -1422,7 +1436,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.14.0";
+const VER="3.15.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
