@@ -807,6 +807,9 @@ function viewTime(){
     ["סה\"כ","","","","","",f1(tot),""])}
   <h2>ימי עבודה מהמשרד — ${m}</h2>
   <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
+  <div class="row noprint"><button class="act" id="ofSheet">עדכון מדוח הנוכחות (יוני–ספטמבר)</button>
+    <button class="ghost" id="ofPaste">הדבקת נוכחות</button></div>
+  <div id="ofPasteBox"></div>
   <div class="row noprint"><button class="ghost" id="ofAuto">מילוי אוטומטי לפי מספר ימי הנסיעות (${(()=>{const t=DB.travel.find(x=>x.month===m);return t&&t.days!=null&&t.days!==""?num(t.days):0;})()})</button>
     <button class="ghost" id="ofClear">ניקוי החודש</button></div>
   <div class="row">${(()=>{const [Y,M]=m.split("-").map(Number); const last=new Date(Y,M,0).getDate(); let out="";
@@ -1290,6 +1293,37 @@ function wire(){
   if(el("pTask")) el("pTask").onchange=()=>{const t=taskById($("#pTask").value); if(!t)return;
     const av=availableFor(t); $("#pAvail").textContent="אפשר לתכנן עוד "+f1(av)+" שעות במשימה הזו";
     const h=$("#pHours"); h.max=av; if(+h.value>av) h.value=av;};
+  if(el("ofSheet")) el("ofSheet").onclick=()=>{
+    const preset=["2026-06-22","2026-06-23","2026-06-24","2026-06-29","2026-06-30","2026-07-05","2026-07-06","2026-07-07","2026-07-08","2026-07-13","2026-07-14","2026-07-15","2026-07-16","2026-07-19","2026-07-20","2026-07-21","2026-07-26","2026-07-27","2026-07-29","2026-08-04","2026-08-05","2026-08-11","2026-08-19","2026-08-25","2026-08-26","2026-08-31","2026-09-02","2026-09-08","2026-09-09"];
+    const months=[...new Set(preset.map(d=>monthOf(d)))];
+    DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>!months.includes(monthOf(d))),...preset])];
+    months.forEach(m=>{let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(t);}
+      t.days=preset.filter(d=>monthOf(d)===m).length;});
+    saveLocal();renderAll();showTab("time");toast("ימי המשרד עודכנו לפי דוח הנוכחות");};
+  if(el("ofPaste")) el("ofPaste").onclick=()=>{
+    const box=$("#ofPasteBox");
+    box.innerHTML=`<div class="panel"><div class="mute">להדביק שורות מדוח הנוכחות. כל שורה: תאריך ואחריו מיקום (משרד / בית).</div>
+      <textarea id="ofText" rows="7" style="width:100%" placeholder="05/07/26 משרד 11:00 18:30 5.0"></textarea>
+      <div class="row"><button class="act" id="ofGo">עדכון</button><button class="ghost" id="ofCancel">ביטול</button></div>
+      <div id="ofMsg" class="mute"></div></div>`;
+    $("#ofCancel").onclick=()=>{box.innerHTML="";};
+    $("#ofGo").onclick=()=>{
+      const lines=($("#ofText").value||"").split(/\n/).map(x=>x.trim()).filter(Boolean);
+      const found=[], months=new Set();
+      lines.forEach(l=>{
+        const m=l.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/); if(!m) return;
+        let y=+m[3]; if(y<100) y+=2000;
+        const k=y+"-"+pad2(+m[2])+"-"+pad2(+m[1]);
+        months.add(monthOf(k));
+        if(l.indexOf("משרד")>=0) found.push(k);
+      });
+      if(!months.size){$("#ofMsg").innerHTML='<span class="flag">לא זוהו תאריכים</span>';return;}
+      DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>!months.has(monthOf(d))),...found])];
+      [...months].forEach(m=>{let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(t);}
+        t.days=found.filter(d=>monthOf(d)===m).length;});
+      saveLocal();renderAll();showTab("time");
+      toast("עודכנו "+found.length+" ימי משרד ב-"+months.size+" חודשים");};
+  };
   if(el("ofAuto")) el("ofAuto").onclick=()=>{
     const m=S.timeMonth||defaultMonth();
     const t=DB.travel.find(x=>x.month===m); const n=t&&t.days!=null&&t.days!==""?num(t.days):0;
@@ -1436,7 +1470,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.15.0";
+const VER="3.16.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
