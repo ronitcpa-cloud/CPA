@@ -824,7 +824,7 @@ function viewBills(){
     <button class="ghost" id="bMail">✉ שליחה במייל</button>
   </div>
   <div id="billForm"></div>
-  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ שלי","שולם","יתרה","מצב",""],rows,totals)}
+  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה","מצב",""],rows,totals)}
   <h2>נסיעות וסיכום</h2>
   <div class="panel noprint"><div class="grid2">
     <label>ימי משרד (אוטומטי: ${officeDays(m)})<input id="trD" type="number" value="${tr.days==null||tr.days===""?officeDays(m):num(tr.days)}"></label>
@@ -833,7 +833,7 @@ function viewBills(){
     <label>החזר נסיעות<input value="${f0(s.travel)} ₪" disabled></label>
   </div><div class="row"><button class="act" id="trSave">עדכון נסיעות</button></div></div>
   <div class="cards" style="margin-top:8px">
-    ${card("סה\"כ שלי",f0(s.mine)+" ₪","")}
+    ${card("סה\"כ חלקי",f0(s.mine)+" ₪","")}
     ${card("החזר נסיעות",f0(s.travel)+" ₪","")}
     ${card("סה\"כ לגבייה",f0(s.due)+" ₪",m)}
     ${card("שולם",f0(s.paid)+" ₪","יתרה "+f0(s.due-s.paid),s.due-s.paid<=0.01?"good":"warn")}
@@ -906,7 +906,7 @@ function viewReports(){
           f0(sum(s=>s.travel)),f0(sum(s=>s.due)),f0(sum(s=>s.paid)),f0(sum(s=>s.due)-sum(s=>s.paid))]:null);
       if(a===b){
         const s=sel[0]||{bills:[],fee:0,extra:0,mine:0,travel:0,due:0};
-        return head+table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ שלי","שולם","יתרה"],
+        return head+table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה"],
           s.bills.map(x=>[clientName(x.clientId||(x.taskId&&taskById(x.taskId)||{}).clientId),
             x.year,heDate(x.date),f0(x.fee),f0(x.extra),f0(billRateAmount(x)),f1(billHours(x)),
             f0(billAmount(x)),f0(billPaid(x)),f0(billDue(x))]),
@@ -1248,13 +1248,44 @@ function wire(){
   if(el("bMail")) el("bMail").onclick=()=>{
     const m=S.billMonth||defaultMonth(), s2=monthSummary(m);
     const lines=s2.bills.map(b=>{const t=b.taskId?taskById(b.taskId):null;
-      return `${clientName(b.clientId||(t&&t.clientId))} ${b.year||""} — שכ"ט ${f0(b.fee)} | נוסף ${f0(b.extra)} | לפי שעות ${f0(billRateAmount(b))} | שעות ${f1(billHours(b))} | שלי ${f0(billAmount(b))} ₪`;});
+      return `${clientName(b.clientId||(t&&t.clientId))} ${b.year||""} — שכ"ט ${f0(b.fee)} | נוסף ${f0(b.extra)} | לפי שעות ${f0(billRateAmount(b))} | שעות ${f1(billHours(b))} | חלקי ${f0(billAmount(b))} ₪`;});
     const body=[`דרישת תשלום לחודש ${m}`,"",...lines,"",
-      `סה"כ שכ"ט משרד: ${f0(s2.fee)} ₪`,`סה"כ החלק שלי: ${f0(s2.mine)} ₪`,
+      `סה"כ שכ"ט משרד: ${f0(s2.fee)} ₪`,`סה"כ חלקי: ${f0(s2.mine)} ₪`,
       `החזר נסיעות: ${f0(s2.travel)} ₪`,`סה"כ לגבייה: ${f0(s2.due)} ₪`,"","בברכה,","רונית פינץ ערוסי, רו״ח"].join("\n");
-    const url="mailto:"+encodeURIComponent(DB.settings.billEmail||"")+
-      "?subject="+encodeURIComponent("דרישת תשלום "+m)+"&body="+encodeURIComponent(body);
-    window.location.href=url;};
+    const saved=DB.settings.emails||[DB.settings.billEmail].filter(Boolean);
+    const box=$("#billForm");
+    box.innerHTML=`<div class="panel">
+      <b>שליחת דרישת תשלום — ${m}</b>
+      <div class="grid2" style="margin-top:6px">
+        <label>נמען<input id="mlTo" list="mlList" value="${esc(DB.settings.billEmail||"")}">
+          <datalist id="mlList">${saved.map(e=>`<option value="${esc(e)}">`).join("")}</datalist></label>
+        <label>נושא<input id="mlSub" value="דרישת תשלום ${m}"></label>
+      </div>
+      <label style="display:block;margin-top:6px">תוכן
+        <textarea id="mlBody" rows="10" style="width:100%">${esc(body)}</textarea></label>
+      <div class="row">
+        <button class="act" id="mlOpen">פתיחה בתוכנת המייל</button>
+        <button class="ghost" id="mlCopy">העתקה ללוח</button>
+        <button class="ghost" id="mlClose">סגירה</button>
+      </div>
+      <div id="mlMsg" class="mute">אם המייל לא נפתח — להעתיק ולהדביק בגוף ההודעה.</div>
+    </div>`;
+    const remember=()=>{const to=$("#mlTo").value.trim(); if(!to) return "";
+      const list=[...new Set([to,...(DB.settings.emails||[])])].slice(0,10);
+      DB.settings.emails=list; DB.settings.billEmail=to; saveLocal(); return to;};
+    $("#mlClose").onclick=()=>{box.innerHTML="";};
+    $("#mlOpen").onclick=()=>{const to=remember(); if(!to){toast("צריך נמען");return;}
+      const a=document.createElement("a");
+      a.href="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent($("#mlSub").value)+
+        "&body="+encodeURIComponent($("#mlBody").value);
+      a.target="_blank"; document.body.appendChild(a); a.click(); a.remove();
+      $("#mlMsg").innerHTML='נפתחה בקשה לתוכנת המייל. אם לא קרה כלום — אפשר להעתיק את התוכן.';};
+    $("#mlCopy").onclick=async()=>{remember();
+      const txt=$("#mlBody").value;
+      try{ await navigator.clipboard.writeText(txt); $("#mlMsg").innerHTML='<span class="ok">הועתק ללוח ✓</span>'; }
+      catch(e){ const ta=$("#mlBody"); ta.select(); document.execCommand&&document.execCommand("copy");
+        $("#mlMsg").innerHTML='<span class="ok">הועתק ✓</span>'; }};
+    box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
   if(el("trSave")) el("trSave").onclick=()=>{const m=S.billMonth||defaultMonth();
     let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m};DB.travel.push(t);}
     t.days=+$("#trD").value||0;t.km=+$("#trK").value||0;t.rate=+$("#trR").value||DB.settings.kmRate;
@@ -1330,7 +1361,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · מערכת ניהול תיקים, שעות ודרישות תשלום"+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.8.0";
+const VER="3.9.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
