@@ -82,11 +82,38 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 #toast{position:fixed;bottom:14px;right:14px;background:var(--ink);color:#fff;padding:9px 14px;border-radius:9px;font-size:14px;opacity:0;transition:.25s;z-index:50}
 #toast.show{opacity:1}
 @media (max-width:680px){
- main{padding:10px 8px 40px}table{font-size:12.5px}th,td{padding:5px 6px}
- .cards{gap:6px}.card .v{font-size:18px}nav button{font-size:13.5px;padding:6px 11px}
+ main{padding:10px 8px 40px}
+ nav button,#navBack{font-size:13.5px;padding:6px 11px}
+ .cards{gap:6px}.card .v{font-size:18px}
+ .row{gap:6px}
+ label{font-size:12.5px}
+ select,input,textarea{font-size:14.5px;padding:6px 8px;max-width:100%}
+ input[type=number]{width:84px}input[type=date]{width:140px}
+ .scroll{overflow-x:hidden;border:none;background:transparent}
+ table{border:none;background:transparent;font-size:13.5px}
+ thead{display:none}
+ tbody,tfoot,tr,td{display:block;width:100%}
+ tbody tr,tfoot tr{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+   padding:7px 10px;margin-bottom:6px}
+ tfoot tr{background:var(--accent-2)}
+ td{border:none;padding:2px 0;white-space:normal;display:flex;gap:8px;justify-content:space-between;align-items:baseline}
+ td::before{content:attr(data-l);color:var(--ink-2);font-size:12px;flex:0 0 auto}
+ td:first-child{font-weight:700;font-size:15px;border-bottom:1px solid var(--line);
+   padding-bottom:5px;margin-bottom:4px}
+ td:first-child::before{content:""}
+ td:empty{display:none}
+ .plan .r{font-size:13.5px;padding:6px 8px}
+ .cal .d{min-height:62px;font-size:11px}
+ .grid2{grid-template-columns:1fr}
 }
 @media print{
  nav,.noprint,header .meta,#lock{display:none!important}
+ thead{display:table-header-group}
+ tbody,tfoot{display:table-row-group}
+ tr{display:table-row}
+ td{display:table-cell}
+ td::before{content:""}
+ td:first-child{border-bottom:1px solid #ddd;margin:0;font-weight:400;font-size:9px}
  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:6px 0}
  header h1{font-size:14px}
  body{background:#fff;font-size:10px}
@@ -529,10 +556,11 @@ function card(k,v,n,cls,drill){
     <div class="k">${k}${drill?' <span class="mute">›</span>':""}</div>
     <div class="v ${cls||""}">${v}</div>${n?`<div class="n">${n}</div>`:""}</div>`;}
 function table(head,rows,foot){
+  const td=(c,i)=>`<td data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;
   return `<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
-   <tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr>`).join("")
+   <tbody>${rows.length?rows.map(r=>`<tr>${r.map(td).join("")}</tr>`).join("")
    :`<tr><td colspan="${head.length}" class="mute">אין נתונים</td></tr>`}</tbody>
-   ${foot?`<tfoot><tr>${foot.map(c=>`<td>${c==null?"":c}</td>`).join("")}</tr></tfoot>`:""}</table></div>`;}
+   ${foot?`<tfoot><tr>${foot.map(td).join("")}</tr></tfoot>`:""}</table></div>`;}
 const printBtn=()=>`<div class="row noprint"><button class="ghost" onclick="window.print()">שמירה כ־PDF / הדפסה</button></div>`;
 const opts=(arr,sel)=>arr.map(o=>{const v=typeof o==="object"?o.v:o,t=typeof o==="object"?o.t:o;
   return `<option value="${esc(v)}" ${String(v)===String(sel)?"selected":""}>${esc(t)}</option>`;}).join("");
@@ -1515,7 +1543,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.18.1";
+const VER="3.19.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
