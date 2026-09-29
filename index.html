@@ -683,12 +683,16 @@ function viewStatus(){
     </label>
     <span class="mute">בפועל ${f0(rateAct)||"—"} ₪ · כולל צפי ${f0(rateAll)||"—"} ₪</span>
   </div>
-  ${attention.length?`<h2>דורש טיפול (${attention.length})</h2>${table(["לקוח","שנה","סוג","סטטוס","החלק שלך","טיפול"],
+  <h2>דורש טיפול (${attention.length})</h2>
+  ${attention.length?table(["לקוח","שנה","סוג","סטטוס","החלק שלך","הערה","טיפול"],
     attention.map(t=>[tName(t),t.year,t.type,t.submit,f0(taskMine(t)),
+      `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
       `<button class="mini" onclick="quickBill('${t.id}')">➕ לדרישת תשלום</button>
        <button class="mini" onclick="markNoBill('${t.id}')">לא לגבייה</button>
-       <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]),null,[0,3,4,5])}
-    <div class="mute">שורה שתטופל תיעלם מהרשימה.</div>`:""}
+       <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]),null,[0,3,4,6])
+    +`<div class="mute">משימות שהוגשו, טופלו או בוטלו ואין להן דרישת תשלום. שורה שתטופל תיעלם מהרשימה.</div>`
+   :`<div class="panel"><span class="ok">אין משימות שדורשות טיפול ✓</span>
+      <div class="mute">כל מה שהוגש, טופל או בוטל כבר נדרש לתשלום או סומן "לא לגבייה".</div></div>`}
   <h2>מגמה חודשית</h2>
   ${table(["חודש","שעות","כלליות","ימי משרד","שכ\"ט שנדרש","החלק שלך","נסיעות","לגבייה"],
     monthsList().map(m=>{const s=monthSummary(m);
@@ -706,7 +710,7 @@ function taskRow(t){
       (billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>')),
     `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
     (t.noBill?`<button class="mini" onclick="restoreBill('${t.id}')">החזר לגבייה</button> `:"")+
-    (billedTask(t.id)?`<button class="mini" onclick="unbillTask('${t.id}')">↩ משיכה</button> `:"")+
+    (billedTask(t.id)?`<button class="mini" onclick="openBill('${t.id}')">דרישת תשלום</button> `:"")+
     `<button class="mini" onclick="editTask('${t.id}')">עריכה</button>
      <button class="mini danger" onclick="delTask('${t.id}')">מחיקה</button>`];
 }
@@ -751,7 +755,7 @@ function viewTasks(){
 }
 function taskForm(t){
   t=t||{id:"",clientId:"",year:new Date().getFullYear()-1,type:"דוח שנתי יחיד",fee:0,extra:0,est:0,
-    sched:"",work:"אצלי",submit:"לטיפול",notes:"",fileNo:"",decision:"בבדיקה",noBill:false};
+    sched:"",work:"אצלי",submit:"לטיפול",notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false};
   return `<div class="panel"><div class="grid2">
     <label>לקוח<select id="fClient"><option value="">— בחרי לקוח —</option>
       ${clientOpts(t.clientId)}<option value="__new" ${!t.clientId&&t.prospect?"selected":""}>➕ לקוח חדש / שם לבדיקה</option></select></label>
@@ -767,7 +771,9 @@ function taskForm(t){
     <label>תוספת נטו שלך<input id="fExtra" type="number" value="${num(t.extra)}"></label>
     <label>צפי שעות<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
-    <label style="grid-column:1/-1">הערה — למה המשימה פתוחה ומה נותר לבצע
+    <label style="grid-column:1/-1">הערה לבדיקת הכדאיות — למה לקחתי או לא לקחתי
+      <input id="fCheckNote" value="${esc(t.checkNote||"")}" placeholder="למשל: שכ&quot;ט נמוך ביחס לשעות, או לקוח אסטרטגי"></label>
+    <label style="grid-column:1/-1">הערה למשימה — למה היא פתוחה ומה נותר לבצע
       <input id="fNotes" value="${esc(t.notes||"")}" placeholder="למשל: ממתינה לחומרים מהלקוח, נותר לסגור הכנסות"></label>
   </div>
   ${t.id?(()=>{const act=taskHours(t.id), mine=taskMine(t), ent=DB.time.filter(x=>x.taskId===t.id).sort((a,b)=>a.date<b.date?1:-1);
@@ -789,7 +795,7 @@ function taskForm(t){
     <button class="ghost" id="fCancel">ביטול</button>
     ${t.id?`<button class="ghost danger" id="fDel">מחיקה</button>`:""}
     ${t.id&&!billedTask(t.id)?`<button class="ghost" id="fBill">➕ לדרישת תשלום</button>`:""}
-    ${t.id&&billedTask(t.id)?`<button class="ghost danger" id="fUnbill">↩ משיכת דרישת התשלום</button>`:""}
+    ${t.id&&billedTask(t.id)?`<button class="ghost" id="fOpenBill">פתיחת דרישת התשלום</button>`:""}
   </div></div>`;
 }
 function viewCal(){
@@ -975,12 +981,15 @@ function viewReports(){
   const body=()=>{
     if(r==="open"){
       const list=DB.tasks.filter(isOpen).sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
+      S.hideNote=S.hideNote||{};
       return `<h2>דוח משימות פתוחות (${list.length})</h2>`+table(
-        ["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי שעות","שעות בפועל","שעות שנותרו"],
+        ["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי שעות","שעות בפועל","שעות שנותרו","הערה",""],
         list.map(t=>[tName(t),t.year,t.type,t.work,heDate(t.sched),
-          f1(t.est),f1(taskHours(t.id)),f1(taskRemaining(t))]),
+          f1(t.est),f1(taskHours(t.id)),f1(taskRemaining(t)),
+          S.hideNote[t.id]?"":`<span class="note" title="${esc(t.notes||"")}">${esc(t.notes||"")}</span>`,
+          `<button class="mini noprint" onclick="toggleNote('${t.id}')">${S.hideNote[t.id]?"הצג":"הסתר"}</button>`]),
         ["סה\"כ","","","","",f1(list.reduce((s,t)=>s+num(t.est),0)),
-          f1(list.reduce((s,t)=>s+taskHours(t.id),0)),f1(list.reduce((s,t)=>s+taskRemaining(t),0))],[0,1,4,7]);
+          f1(list.reduce((s,t)=>s+taskHours(t.id),0)),f1(list.reduce((s,t)=>s+taskRemaining(t),0)),"",""],[0,1,7,8,9]);
     }
     if(r==="sched"){
       const from=S.sf||iso(t0), to=S.st||iso(new Date(t0.getFullYear(),t0.getMonth()+1,0));
@@ -1032,7 +1041,7 @@ function viewReports(){
         const cls=dec==="לקחתי"?"ok":(dec==="לא לקחתי"?"flag":"warn");
         return [t.checkedAt?heDate(t.checkedAt):"",tName(t),t.year,t.type,f0(t.fee),f1(t.est),
           r2?`${f0(r2)} ${Math.round(r2)>=DB.settings.target?'<span class="ok">✓</span>':'<span class="flag">✗</span>'}`:"",
-          f0(DB.settings.target),`<span class="${cls}">${esc(dec)}</span>`,esc(t.notes||""),
+          f0(DB.settings.target),`<span class="${cls}">${esc(dec)}</span>`,esc(t.checkNote||""),
           `<button class="mini noprint" onclick="editTask('${t.id}')">פתיחה</button>`];});
       const took=list.filter(t=>(t.decision||"לקחתי")==="לקחתי").length;
       const skipped=list.filter(t=>t.decision==="לא לקחתי").length;
@@ -1095,7 +1104,9 @@ function viewClients(){
     const h=ts.reduce((s,t)=>s+taskHours(t.id),0), mine=bt.reduce((s,t)=>s+taskMine(t),0);
     return [esc(c.name),esc(c.fileNo||"—"),esc(c.type||"—"),ts.length,ts.filter(isOpen).length,f1(h),
       f0(bt.reduce((s,t)=>s+num(t.fee),0)),f0(mine),h>0?f0(mine/h):"",
-      `<button class="mini" onclick="editClient('${c.id}')">עריכה</button>
+      `<span class="note" onclick="clientNotes('${c.id}')" title="${esc(c.notes||"לחיצה להוספת פרטים")}">${c.notes?esc(c.notes):'<span class="mute">+ פרטים</span>'}</span>`,
+      `<button class="mini" onclick="clientNotes('${c.id}')">פרטים נוספים</button>
+       <button class="mini" onclick="editClient('${c.id}')">עריכה</button>
        <button class="mini danger" onclick="delClient('${c.id}')">מחיקה</button>`];});
   return `<h2>לקוחות (${DB.clients.length})</h2>
   <div class="mute">לקוח = תיק. כל שורת עבודה לשנה ולמוצר היא משימה בתוך התיק.</div>
@@ -1104,7 +1115,7 @@ function viewClients(){
     <select id="clType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],"")}</select>
     <button class="act" id="clAdd">הוספה</button></div>
   <div id="clientForm"></div>
-  ${table(["לקוח","מספר תיק","סוג","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה",""],rows,null,[0,2,3,7,9])}`;
+  ${table(["לקוח","מספר תיק","סוג","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה","פרטים",""],rows,null,[0,2,7,9,10])}`;
 }
 function viewData(){
   const st=dState();
@@ -1215,18 +1226,14 @@ window.delPay=(bid,pid)=>{const b=DB.bills.find(x=>x.id===bid); if(!b)return;
   b.payments=(b.payments||[]).filter(p=>p.id!==pid); saveLocal(); renderAll(); showTab("bills");};
 window.editBill=id=>{const b=DB.bills.find(t=>t.id===id);renderAll();showTab("bills");
   const box=$("#billForm");box.innerHTML=billForm(b,!b.taskId);wireBillForm(b,!b.taskId);box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
+window.toggleNote=id=>{S.hideNote=S.hideNote||{};
+  S.hideNote[id]=!S.hideNote[id]; renderAll(); showTab("reports");};
 window.editNote=id=>{const t=taskById(id); if(!t)return;
   const v=prompt("הערה למשימה — למה היא פתוחה ומה נותר לבצע:",t.notes||"");
   if(v===null) return; t.notes=v.trim(); saveLocal(); renderAll(); showTab("tasks"); toast("ההערה נשמרה");};
-window.unbillTask=id=>{
-  const rows=DB.bills.filter(b=>b.taskId===id); if(!rows.length){toast("אין דרישת תשלום למשימה");return;}
-  const paid=rows.reduce((s,b)=>s+billPaid(b),0);
-  const msg=paid>0
-    ? `נרשמו תשלומים בסך ${f0(paid)} ₪ על הדרישה. משיכה תמחק גם אותם. להמשיך?`
-    : `למשוך את דרישת התשלום (${rows.length} שורות)?`;
-  if(!confirm(msg)) return;
-  DB.bills=DB.bills.filter(b=>b.taskId!==id);
-  saveLocal(); renderAll(); showTab("tasks"); toast("דרישת התשלום נמשכה");};
+window.openBill=id=>{const rows=DB.bills.filter(b=>b.taskId===id);
+  if(!rows.length){toast("אין דרישת תשלום למשימה");return;}
+  S.billMonth=rows[0].month; window.editBill(rows[0].id);};
 window.delTask=id=>{const t=taskById(id); if(!t)return;
   const h=DB.time.filter(x=>x.taskId===id).length, b=DB.bills.filter(x=>x.taskId===id).length;
   if(!confirm(`למחוק את המשימה? ${h} רישומי שעות יישארו ללא שיוך, ${b} שורות דרישת תשלום יימחקו.`))return;
@@ -1266,6 +1273,17 @@ window.delClient=id=>{
     DB.plans=DB.plans.filter(p=>!ids.includes(p.taskId));
   } else if(!confirm("למחוק את הלקוח?")) return;
   DB.clients=DB.clients.filter(c=>c.id!==id); saveLocal(); renderAll(); showTab("clients"); toast("נמחק");};
+window.clientNotes=id=>{const c=DB.clients.find(x=>x.id===id); if(!c)return;
+  renderAll(); showTab("clients");
+  const box=$("#clientForm");
+  box.innerHTML=`<div class="panel"><b>פרטים נוספים — ${esc(c.name)}</b>
+    <div class="mute">הערות כלליות על הלקוח: אנשי קשר, הסכמות, דגשים, מה חשוב לזכור.</div>
+    <textarea id="cNotes" rows="5" style="width:100%;margin-top:6px">${esc(c.notes||"")}</textarea>
+    <div class="row"><button class="act" id="cnSave">שמירה</button>
+      <button class="ghost" id="cnCancel">ביטול</button></div></div>`;
+  $("#cnCancel").onclick=()=>{box.innerHTML="";};
+  $("#cnSave").onclick=()=>{c.notes=$("#cNotes").value.trim();saveLocal();renderAll();showTab("clients");toast("הפרטים נשמרו");};
+  box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
   renderAll(); showTab("clients");
   const box=$("#clientForm");
@@ -1317,14 +1335,14 @@ function wireTaskForm(t){
       checkedAt:(t&&t.checkedAt)||(checkMode?iso(today()):null),
       type:$("#fType").value,work:$("#fWork").value,submit:$("#fSub").value,decision:$("#fDec").value,noBill:$("#fNoBill").value==="no",
       fee:+$("#fFee").value||0,extra:+$("#fExtra").value||0,est:+$("#fEst").value||0,
-      sched:$("#fSched").value||null,notes:$("#fNotes").value};
+      checkNote:$("#fCheckNote").value,sched:$("#fSched").value||null,notes:$("#fNotes").value};
     const dup=DB.tasks.find(x=>x.id!==o.id&&x.clientId&&x.clientId===o.clientId&&
       String(x.year)===String(o.year)&&x.type===o.type);
     if(dup&&!confirm("כבר קיימת משימה זהה לאותו לקוח, שנה ומוצר. להוסיף בכל זאת?")) return;
-    if(dec==="לא לקחתי"&&!o.notes){
+    if(dec==="לא לקחתי"&&!o.checkNote){
       const est=num(o.est), mine=num(o.fee)*DB.settings.share+num(o.extra);
       const r=est>0?mine/est:0;
-      o.notes=(est>0&&Math.round(r)<DB.settings.target)?("מתחת ליעד השעתי — "+f0(r)+" ₪ לשעה מול יעד "+f0(DB.settings.target)):"לא נלקח";
+      o.checkNote=(est>0&&Math.round(r)<DB.settings.target)?("מתחת ליעד השעתי — "+f0(r)+" ₪ לשעה מול יעד "+f0(DB.settings.target)):"לא נלקח";
     }
     const i=DB.tasks.findIndex(x=>x.id===o.id);
     if(i>=0) DB.tasks[i]=Object.assign(DB.tasks[i],o); else DB.tasks.push(o);
@@ -1343,7 +1361,6 @@ function wireTaskForm(t){
   if($("#fTake")) $("#fTake").onclick=()=>buildSave("לקחתי");
   if($("#fSkip")) $("#fSkip").onclick=()=>buildSave("לא לקחתי");
   if($("#fDel")) $("#fDel").onclick=()=>{window.delTask(t.id);};
-  if($("#fUnbill")) $("#fUnbill").onclick=()=>{ window.unbillTask(t.id); };
   if($("#fBill")) $("#fBill").onclick=()=>{
     const b={id:uid(),month:iso(today()).slice(0,7),taskId:t.id,clientId:t.clientId,year:t.year,
       date:iso(today()),fee:num(t.fee),extra:num(t.extra),amount:"",note:t.submit==="בוטל"?"עבודה שבוטלה":""};
@@ -1595,7 +1612,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.30.1";
+const VER="3.33.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
