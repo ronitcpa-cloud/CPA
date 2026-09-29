@@ -1544,6 +1544,43 @@ function wire(){
       notes:"",checkNote:"",decision:"בבדיקה",noBill:false};
     const box=$("#taskForm"); box.innerHTML=taskForm(blank); wireTaskForm(blank);
     box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
+  if(el("calM")) el("calM").onchange=e=>{S.calMonth=e.target.value;S.calDay=null;renderAll();showTab("cal");};
+  const shiftMonth=n=>{const cur=S.calMonth||iso(today()).slice(0,7);const[Y,M]=cur.split("-").map(Number);
+    const dd=new Date(Y,M-1+n,1);S.calMonth=iso(dd).slice(0,7);S.calDay=null;renderAll();showTab("cal");};
+  if(el("calPrev")) el("calPrev").onclick=()=>shiftMonth(-1);
+  if(el("calNext")) el("calNext").onclick=()=>shiftMonth(1);
+  if(el("dOff")) el("dOff").onclick=()=>{const k=S.calDay;
+    if(DB.offDays.includes(k)) DB.offDays=DB.offDays.filter(x=>x!==k); else DB.offDays.push(k);
+    saveLocal();renderAll();showTab("cal");};
+  if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
+    const ents=DB.time.filter(x=>x.date===k);
+    if(!ents.length){toast("אין רישומי שעות ביום הזה");return;}
+    const on=!isOfficeDay(k); ents.forEach(x=>{x.office=on;});
+    saveLocal();renderAll();showTab("cal");toast(on?"היום סומן כיום משרד":"הסימון הוסר");};
+  if(el("pTask")) el("pTask").onchange=()=>{const t=taskById($("#pTask").value); if(!t)return;
+    const av=availableFor(t); const msg=$("#pAvail"); if(msg) msg.textContent="אפשר לתכנן עוד "+f1(av)+" שעות במשימה הזו";
+    const h=$("#pHours"); if(h){h.max=av; if(+h.value>av) h.value=av;}};
+  if(el("pAdd")) el("pAdd").onclick=()=>{const tid=$("#pTask").value; let h=+$("#pHours").value||0;
+    const t=taskById(tid);
+    if(!tid||!h){toast("צריך משימה ושעות");return;}
+    const av=availableFor(t);
+    if(av<=0){toast("המשימה כבר מתוכננת במלוא צפי השעות");return;}
+    if(h>av){h=av;toast("נותרו לתכנון "+f1(av)+" שעות — הוזן "+f1(av));}
+    DB.plans.push({id:uid(),taskId:tid,date:S.calDay,hours:h});
+    saveLocal();renderAll();showTab("cal");toast("נוסף לתכנון");};
+  if(el("rateMode")) el("rateMode").onchange=e=>{S.rateMode=e.target.value;renderAll();showTab("status");};
+  if(el("ofSheet")) el("ofSheet").onclick=()=>{
+    const preset=["2026-06-22","2026-06-23","2026-06-24","2026-06-29","2026-06-30",
+      "2026-07-05","2026-07-06","2026-07-07","2026-07-08","2026-07-13","2026-07-14","2026-07-15","2026-07-16",
+      "2026-07-19","2026-07-20","2026-07-21","2026-07-26","2026-07-27","2026-07-29",
+      "2026-08-04","2026-08-05","2026-08-11","2026-08-19","2026-08-25","2026-08-26","2026-08-31",
+      "2026-09-02","2026-09-08","2026-09-09"];
+    const months=[...new Set(preset.map(dd=>monthOf(dd)))];
+    DB.time.forEach(x=>{ if(months.includes(monthOf(x.date))) x.office=preset.includes(x.date); });
+    months.forEach(m=>{let tr=DB.travel.find(x=>x.month===m); if(!tr){tr={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(tr);}
+      const want=preset.filter(dd=>monthOf(dd)===m).length, got=officeList(m).length;
+      tr.days=(want===got)?"":want;});
+    saveLocal();renderAll();showTab("time");toast("ימי המשרד ההיסטוריים עודכנו");};
   if(el("tmM")) el("tmM").onchange=e=>{S.timeMonth=e.target.value;renderAll();};
   if(el("tmAdd")) el("tmAdd").onclick=()=>{const box=$("#timeForm");box.innerHTML=timeForm(null);wireTimeForm(null);};
   if(el("bM")) el("bM").onchange=e=>{S.billMonth=e.target.value;renderAll();};
@@ -1692,7 +1729,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.41.0";
+const VER="3.41.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
