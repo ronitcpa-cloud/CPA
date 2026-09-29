@@ -27,7 +27,7 @@ nav{display:flex;gap:6px;overflow-x:auto;padding:9px 10px;background:var(--panel
 #navBack{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:999px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
 nav button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:999px;padding:6px 13px;font:inherit;font-size:14px;cursor:pointer}
 nav button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(21,146,230,.35)}
-main{padding:12px 10px 50px;max-width:1000px;margin:0 auto}
+main{padding:10px 14px 40px;max-width:none;margin:0}
 section[hidden]{display:none}
 h2{font-size:15px;color:var(--ink-2);margin:18px 0 7px;font-weight:600}
 h2:first-child{margin-top:2px}
@@ -37,9 +37,9 @@ h2:first-child{margin-top:2px}
 .card .v{font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card .n{font-size:11px;color:var(--ink-2);overflow-wrap:anywhere}
 .v.good{color:var(--good)}.v.bad{color:var(--bad)}.v.warn{color:var(--warn)}
-.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel);max-width:100%}
+table{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:auto}
+th,td{padding:5px 7px;text-align:right;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere}
 th{background:var(--accent-2);color:var(--accent-d);font-size:12px;font-weight:700;position:sticky;top:0}
 tr:last-child td{border-bottom:none}
 tfoot td{font-weight:700;background:#eaf4fe;color:var(--ink)}
@@ -655,7 +655,7 @@ function viewStatus(){
   const review=DB.tasks.filter(t=>t.decision==="בבדיקה");
   const dueAll=monthsList().reduce((s,m)=>s+monthSummary(m).due,0);
   const attention=mine.filter(t=>(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id));
-  return `<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
+  return `${printBtn()}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
    ${card("משימות לגבייה",mine.length,[...new Set(mine.map(t=>t.clientId))].length+" לקוחות","","tasks")}
    ${card("שכ\"ט משרד",f0(mine.reduce((s,t)=>s+num(t.fee),0))+" ₪","","","fee")}
@@ -694,7 +694,7 @@ function viewStatus(){
   ${table(["חודש","שעות","כלליות","ימי משרד","שכ\"ט שנדרש","החלק שלך","נסיעות","לגבייה"],
     monthsList().map(m=>{const s=monthSummary(m);
       return [m,f1(s.hours),f1(s.gen),officeDays(m),f0(s.fee),f0(s.mine),f0(s.travel),f0(s.due)];}),null,[0,1,5,7])}
-  ${printBtn()}`;
+`;
 }
 function taskRow(t){
   const act=taskHours(t.id), mine=taskMine(t), est=num(t.est);
@@ -727,7 +727,7 @@ function viewTasks(){
   list.sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
   const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
   const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
-  return `<h2>משימות (${list.length})</h2>
+  return `${printBtn()}<h2>משימות (${list.length})</h2>
   <div class="row noprint">
     <label>סטטוס הגשה<select id="fltStatus">${opts(["פתוחים","הכול",...SUBM],F.status)}</select></label>
     <label>לקוח<select id="fltClient"><option value="">כל הלקוחות</option>${clientOpts(F.client)}</select></label>
@@ -746,7 +746,7 @@ function viewTasks(){
   <div id="taskForm"></div>
   ${table(["לקוח","שנה","מוצר","הגשה","עבודה","יעד הגשה","צפי","בפועל","נותרו","שכ\"ט","נוסף","שלך","₪/ש׳ צפי","₪/ש׳ בפועל","תשלום",""],
     list.map(taskRow),null,[0,1,3,8,11,15])}
-  ${printBtn()}`;
+`;
 }
 function taskForm(t){
   t=t||{id:"",clientId:"",year:new Date().getFullYear()-1,type:"דוח שנתי יחיד",fee:0,extra:0,est:0,
@@ -811,7 +811,7 @@ function viewCal(){
       ${ph?`<div class="t plan">מתוכנן ${f1(ph)}</div>`:""}${chips}</div>`;
   };
   const sel=S.calDay&&monthOf(S.calDay)===cur?S.calDay:null;
-  return `<h2>לוח חודשי</h2>
+  return `${printBtn()}<h2>לוח חודשי</h2>
   <div class="row noprint">
     <label>חודש <select id="calM">${opts(months,cur)}</select></label>
     <button class="ghost" id="calPrev">‹ הקודם</button><button class="ghost" id="calNext">הבא ›</button>
@@ -834,7 +834,7 @@ function viewCal(){
     ${cells.map(cell).join("")}
   </div>
   <div id="dayPanel">${sel?dayPanel(sel):'<div class="mute" style="margin-top:8px">לחיצה על יום פותחת תכנון ליום הזה.</div>'}</div>
-  ${printBtn()}`;
+`;
 }
 function dayPanel(k){
   const inf=dayInfo(k), ps=DB.plans.filter(p=>p.date===k), ts=DB.time.filter(t=>t.date===k);
@@ -867,7 +867,7 @@ function viewTime(){
   const m=S.timeMonth||defaultMonth();
   const list=DB.time.filter(x=>monthOf(x.date)===m).sort((a,b)=>a.date<b.date?1:-1);
   const tot=list.reduce((s,x)=>s+num(x.hours),0);
-  return `<h2>יומן שעות</h2>
+  return `${printBtn()}<h2>יומן שעות</h2>
   <div class="row noprint">
     <label>חודש <select id="tmM">${opts(monthsList(),m)}</select></label>
     <button class="act" id="tmAdd">+ רישום שעות</button>
@@ -892,7 +892,7 @@ function viewTime(){
       out+=`<label style="border:1px solid var(--line);border-radius:8px;padding:3px 7px;background:${isOfficeDay(k)?"var(--accent-2)":"#fff"}">
         <input type="checkbox" onchange="toggleOffice('${k}')" ${isOfficeDay(k)?"checked":""}> ${dd}/${M}</label>`;}
     return out;})()}</div></div>
-  ${printBtn()}`;
+`;
 }
 function timeForm(x){
   x=x||{id:"",taskId:"",date:iso(today()),hours:1,desc:"",office:false};
@@ -922,7 +922,7 @@ function viewBills(){
        <button class="mini" onclick="editBill('${b.id}')">עריכה</button>`];});
   const totals=["סה\"כ","","",f0(s.fee),f0(s.extra),f0(s.byRate),f1(s.billHours),
     `<b>${f0(s.mine)}</b>`,f0(s.paid),f0(s.mine-s.paid),"","",""];
-  return `<h2>דרישת תשלום — ${m}</h2>
+  return `${printBtn()}<h2>דרישת תשלום — ${m}</h2>
   <div class="row noprint">
     <label>חודש <select id="bM">${opts(months,m)}</select></label>
     <button class="act" id="bAdd">+ הוסף משימה לדרישה</button>
@@ -945,7 +945,7 @@ function viewBills(){
     ${card("סה\"כ לגבייה",f0(s.due)+" ₪",m)}
     ${card("שולם",f0(s.paid)+" ₪","יתרה "+f0(s.due-s.paid),s.due-s.paid<=0.01?"good":"warn")}
   </div>
-  ${printBtn()}`;
+`;
 }
 function billForm(b,free){
   const open=DB.tasks.filter(t=>!billedTask(t.id)||((b&&b.taskId)===t.id));
@@ -1070,7 +1070,8 @@ function viewReports(){
     ${["open|פתוחים","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","drill|לפי לקוח"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
     <button class="ghost" id="xlsx">ייצוא לאקסל</button>
-  </div>${body()}${printBtn()}`;
+    <button class="ghost" onclick="window.print()">שמירה כ־PDF / הדפסה</button>
+  </div>${body()}`;
 }
 function viewClients(){
   const rows=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he")).map(c=>{
@@ -1547,7 +1548,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.20.0";
+const VER="3.22.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
