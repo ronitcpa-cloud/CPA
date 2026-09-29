@@ -127,10 +127,11 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  #s-status,#s-tasks,#s-cal,#s-time,#s-bills,#s-clients,#s-data{display:none!important}
  header{display:none!important}
  th{background:#e2f1fd!important;color:#0d6cb4!important;border-bottom:1px solid #a9d6f7}
+ .offday{color:#7a5ea8!important;font-size:inherit;font-weight:600}
  tfoot td{background:#eaf4fe!important}
  table{border:1px solid #c9dcef}
- .note,.noteFull{max-width:520px!important;white-space:normal!important;display:-webkit-box;
-   -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+ .note,.noteFull{max-width:380px!important;white-space:normal!important;overflow:visible!important;
+   text-overflow:clip!important;display:inline-block}
  td{vertical-align:top}
  nav,.noprint,header .meta,#lock{display:none!important}
  thead{display:table-header-group}
@@ -595,8 +596,10 @@ async function getReportDir(force){
     const h=await idbGet("dir");
     if(h){ const perm=await h.queryPermission({mode:"readwrite"});
       if(perm==="granted"||(await h.requestPermission({mode:"readwrite"}))==="granted"){repDir=h;return h;} } }
-  const h=await window.showDirectoryPicker({mode:"readwrite"});
-  repDir=h; await idbSet("dir",h); return h;
+  const h=await window.showDirectoryPicker({mode:"readwrite",id:"cpaReports",startIn:"documents"});
+  repDir=h; await idbSet("dir",h);
+  try{localStorage.setItem("cpa-repdir-name",h.name||"");}catch(e){}
+  return h;
 }
 function reportHtml(title,inner){
   const css=document.querySelector("style")?document.querySelector("style").textContent:"";
@@ -604,9 +607,19 @@ function reportHtml(title,inner){
 <title>${esc(title)}</title><style>${css}
 body{background:#fff}main{padding:14px 18px}.noprint{display:none}
 .printHead{display:block;border-bottom:2px solid var(--accent);margin:0 0 8px;padding-bottom:5px}
-.note,.noteFull{max-width:520px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.note,.noteFull{max-width:380px;white-space:normal;overflow:visible;text-overflow:clip;display:inline-block}
 </style></head><body><main>${inner}</main></body></html>`;
 }
+function repStamp(){const d=new Date();return d.getDate()+"."+(d.getMonth()+1)+"."+d.getFullYear();}
+window.printReport=function(){
+  const r=S.rep||"open", name=(typeof REPNAMES!=="undefined"&&REPNAMES[r])||"דוח";
+  const orig=document.title;
+  document.title="רונית ערוסי - "+name+" "+repStamp();
+  const restore=()=>{document.title=orig;window.removeEventListener("afterprint",restore);};
+  window.addEventListener("afterprint",restore);
+  window.print();
+  setTimeout(restore,3000);
+};
 async function saveReportToFolder(){
   const r=S.rep||"open", name=(typeof REPNAMES!=="undefined"&&REPNAMES[r])||"דוח";
   const sec=$("#s-reports"); if(!sec) return;
@@ -1118,7 +1131,7 @@ function viewReports(){
       const list=[...plans,...offs].sort((a,b)=>a.date>b.date?1:(a.date<b.date?-1:0));
       const rows=list.map(x=>{
         if(x.kind==="off") return [heDate(x.date),DAYS[new Date(x.date).getDay()],
-          `<span class="mute">${esc(x.label)}</span>`,"","","",""];
+          `<span class="offday">${esc(x.label)}</span>`,"","","",""];
         const t=taskById(x.p.taskId)||{};
         return [heDate(x.date),DAYS[new Date(x.date).getDay()],tName(t),t.year||"",t.type||"",t.work||"",f1(x.p.hours)];});
       return `<h2>דוח לו"ז</h2>
@@ -1236,7 +1249,7 @@ function viewReports(){
     ${["open|פתוחים","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
     <button class="ghost" id="xlsx">ייצוא לאקסל</button>
-    <button class="ghost" onclick="window.print()">הדפסה</button>
+    <button class="ghost" onclick="printReport()">הדפסה</button>
     <button class="act" id="saveRep">💾 שמירה לתיקייה</button>
   </div>
   <div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
@@ -1329,7 +1342,10 @@ function viewData(){
     <label class="ghost" style="cursor:pointer">טעינת גיבוי JSON<input type="file" id="jsonIn" accept=".json" style="display:none"></label>
     <button class="ghost" id="xlsxOut">ייצוא לאקסל</button>
     <button class="ghost" id="repDirBtn">בחירת תיקיית הדוחות</button></div>
-    <div class="mute">הדוחות נשמרים בתיקייה שתבחרי, בתת-תיקייה לפי שם הדוח, בשם הכולל את תאריך ההפקה.</div></div>`;
+    <div class="mute">הדוחות נשמרים בתיקייה שתבחרי, בתת-תיקייה לפי שם הדוח, בשם הכולל את תאריך ההפקה.
+      ${(()=>{let n=""; try{n=localStorage.getItem("cpa-repdir-name")||"";}catch(e){}
+        return n?`<br>תיקייה שנבחרה: <b>${esc(n)}</b> — הבחירה נשמרת, ובפעמים הבאות השמירה מיידית.`
+                :"<br>בבחירה הראשונה צריך לנווט ידנית אל התיקייה ב-G:, ומשם היא נשמרת לתמיד.";})()}</div></div>`;
 }
 
 /* ============ actions ============ */
@@ -1836,7 +1852,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.46.1";
+const VER="3.47.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
