@@ -314,17 +314,25 @@ function gReady(){
   if(window.GSI_BLOCKED||!(window.google&&google.accounts&&google.accounts.oauth2)){
     dInfo("החיבור לדרייב עובד רק מהאתר שלך (github.io)",true);return false;}
   return true;}
-function gAuth(cb){
+function gAuth(cb,silent){
   if(!gReady())return;
   google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
-    callback:r=>{if(r&&r.access_token){drive.token=r.access_token;cb&&cb();}else dInfo("ההתחברות לא הושלמה",true);}
-  }).requestAccessToken({prompt:""});
+    callback:r=>{
+      if(r&&r.access_token){
+        drive.token=r.access_token;
+        const sc=r.scope||"";
+        if(sc&&sc.indexOf("drive.file")<0&&!silent){ dInfo("חסרה הרשאת כתיבה לדרייב — לאשר את שתי ההרשאות במסך של גוגל",true); }
+        cb&&cb(true);
+      } else { if(!silent) dInfo("ההתחברות לא הושלמה: "+((r&&r.error)||"נסגר החלון"),true); cb&&cb(false); }
+    }
+  }).requestAccessToken({prompt:silent?"":"consent"});
 }
 async function gFetch(url,opt){
   const o=opt||{};o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
   const r=await fetch(url,o);
-  if(r.status===401||r.status===403){drive.token=null;throw new Error("auth");}
-  if(!r.ok) throw new Error("drive "+r.status);
+  if(r.status===401){drive.token=null;throw new Error("auth");}
+  if(r.status===403){drive.token=null;throw new Error("אין הרשאה (403) — לאשר גישה לדרייב");}
+  if(!r.ok) throw new Error("שגיאת דרייב "+r.status);
   return r;
 }
 async function driveSave(silent){
@@ -346,16 +354,12 @@ async function driveSave(silent){
   }catch(e){ if(e.message==="auth"){gAuth(()=>driveSave(silent));return;} dInfo("השמירה נכשלה: "+e.message,true);}
 }
 let syncBusy=false, lastSync=0;
-function gAuthSilent(cb){
-  if(!gReady()) return;
-  google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
-    callback:r=>{ if(r&&r.access_token){drive.token=r.access_token; cb&&cb(true);} else cb&&cb(false); }
-  }).requestAccessToken({prompt:""});
-}
+function gAuthSilent(cb){ gAuth(cb,true); }
 async function driveSync(manual){
   if(syncBusy) return; if(!drive.auto&&!manual) return;
   if(!gReady()) return;
-  if(!drive.token){ if(!manual){ gAuthSilent(ok=>{ if(ok) driveSync(false); }); return; } gAuth(()=>driveSync(true)); return; }
+  if(!drive.token){ if(!manual){ gAuthSilent(ok=>{ if(ok) driveSync(false); }); return; }
+    dInfo("מתחבר לגוגל…"); gAuth(ok=>{ if(ok) driveSync(true); }); return; }
   syncBusy=true;
   try{
     let st=dState();
@@ -375,7 +379,13 @@ async function driveSync(manual){
       renderAll(); toast("עודכן מהדרייב"); }
     else if(lUp>rUp+1000){ await driveSave(true); }
     dSave({synced:Date.now()}); lastSync=Date.now(); setHdr();
-  }catch(e){ if(e.message==="auth"){drive.token=null;} }
+  }catch(e){
+    drive.token=(e.message==="auth")?null:drive.token;
+    if(manual) dInfo("הסנכרון נכשל: "+(e.message||"שגיאה")+" — אפשר לנסות שוב",true);
+    syncBusy=false; if(manual&&e.message==="auth"){ gAuth(ok=>{ if(ok) driveSync(true); }); }
+    return;
+  }
+  if(manual) dInfo("סונכרן ✓");
   syncBusy=false;
 }
 async function driveLoad(){
@@ -1053,7 +1063,8 @@ function viewData(){
     <div class="row"><button class="act" id="dSyncBtn">🔄 סנכרון עכשיו</button>
       <button class="ghost" id="dSaveBtn">שמירה לדרייב</button>
       <button class="ghost" id="dLoadBtn">טעינה מהדרייב</button>
-      <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> סנכרון אוטומטי</label></div>
+      <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> סנכרון אוטומטי</label>
+      <button class="ghost" id="dDiag">בדיקת חיבור</button></div>
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
   </div>
@@ -1431,6 +1442,17 @@ function wire(){
     DB.clients.push({id:uid(),name:n,type:"",fileNo:$("#clNum").value.trim()});
     saveLocal();renderAll();showTab("clients");toast("לקוח נוסף");};
   if(el("dSyncBtn")) el("dSyncBtn").onclick=()=>driveSync(true);
+  if(el("dDiag")) el("dDiag").onclick=async()=>{
+    const st=dState(); const L=[];
+    L.push("כתובת: "+location.origin+location.pathname);
+    L.push("ספריית גוגל נטענה: "+((window.google&&google.accounts&&google.accounts.oauth2)?"כן":"לא"));
+    L.push("טוקן פעיל: "+(drive.token?"כן":"לא"));
+    L.push("מזהה קובץ בדרייב: "+(st.dataId||"טרם נוצר"));
+    L.push("סנכרון אחרון: "+(st.synced?new Date(st.synced).toLocaleString("he-IL"):"אף פעם"));
+    if(drive.token){ try{ const r=await gFetch("https://www.googleapis.com/drive/v3/about?fields=user");
+        const j=await r.json(); L.push("חשבון: "+((j.user&&j.user.emailAddress)||"לא ידוע")); }
+      catch(e){ L.push("בדיקת חשבון נכשלה: "+e.message); } }
+    dInfo(L.join(" · "));};
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
   if(el("dAuto")) el("dAuto").onchange=e=>{drive.auto=e.target.checked;};
@@ -1493,7 +1515,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.18.0";
+const VER="3.18.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
