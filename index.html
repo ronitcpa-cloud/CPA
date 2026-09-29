@@ -53,6 +53,10 @@ button.act{background:linear-gradient(180deg,#1b9bef,#0d7fd0);color:#fff;border:
 button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font:inherit;cursor:pointer}
 button.mini{background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 8px;font:inherit;font-size:13px;cursor:pointer}
 button.danger{color:var(--bad)}
+.note{display:inline-block;max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+ vertical-align:bottom;cursor:pointer;color:var(--ink)}
+.note:hover{text-decoration:underline}
+@media (max-width:680px){.note{max-width:130px}}
 .flag{color:var(--bad);font-weight:600}.ok{color:var(--good)}.mute{color:var(--ink-2);font-size:13px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:6px;max-width:820px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
@@ -247,7 +251,7 @@ function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
   DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il'},d.settings||{});
   DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];
-  DB.time.filter(x=>x.office&&x.date).forEach(x=>{if(!DB.officeDates.includes(x.date))DB.officeDates.push(x.date);});
+  (DB.officeDates||[]).forEach(d=>{DB.time.filter(x=>x.date===d).forEach(x=>{x.office=true;});});
   DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
 const clientName=id=>{const c=DB.clients.find(c=>c.id===id);return c?c.name:"—";};
 const taskById=id=>DB.tasks.find(t=>t.id===id);
@@ -294,9 +298,9 @@ function dayInfo(dt){
 }
 function businessDays(a,b){let n=0;const d=new Date(a);
   while(d<=b){if(!dayInfo(d).off)n++;d.setDate(d.getDate()+1);}return n;}
-const officeList=m=>(DB.officeDates||[]).filter(d=>monthOf(d)===m).sort();
+const officeList=m=>[...new Set(DB.time.filter(t=>t.office&&monthOf(t.date)===m).map(t=>t.date))].sort();
 function officeDays(m){return officeList(m).length;}
-const isOfficeDay=d=>(DB.officeDates||[]).includes(d);
+const isOfficeDay=d=>DB.time.some(t=>t.date===d&&t.office);
 const PAYWAYS=["העברה בנקאית","צ׳ק","אשראי","מזומן","ביט","קיזוז","אחר"];
 function billHours(b){ if(b.hours!=null&&b.hours!=="") return num(b.hours);
   return b.taskId?taskHours(b.taskId):0; }
@@ -700,7 +704,7 @@ function taskRow(t){
     act>0?f0(mine/act):"",
     t.noBill?'<span class="pill cancel">לא לגבייה</span>':
       (billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>')),
-    `<span onclick="editNote('${t.id}')" style="cursor:pointer" title="לחיצה לעריכת הערה">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
+    `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
     (t.noBill?`<button class="mini" onclick="restoreBill('${t.id}')">החזר לגבייה</button> `:"")+
     (billedTask(t.id)?`<button class="mini" onclick="unbillTask('${t.id}')">↩ משיכה</button> `:"")+
     `<button class="mini" onclick="editTask('${t.id}')">עריכה</button>
@@ -881,18 +885,10 @@ function viewTime(){
         t?`${t.year} ${t.type}`:"—",esc(x.desc||""),x.office?"משרד":"בית",f1(x.hours),
         `<button class="mini" onclick="editTime('${x.id}')">עריכה</button>`];}),
     ["סה\"כ","","","","","",f1(tot),""],[0,2,6,7])}
-  <h2>ימי עבודה מהמשרד — ${m}</h2>
-  <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
-  <div class="row noprint"><button class="act" id="ofSheet">עדכון מדוח הנוכחות (יוני–ספטמבר)</button>
-</div>
-  <div class="row noprint"><button class="ghost" id="ofAuto">מילוי אוטומטי לפי מספר ימי הנסיעות (${(()=>{const t=DB.travel.find(x=>x.month===m);return t&&t.days!=null&&t.days!==""?num(t.days):0;})()})</button>
-    <button class="ghost" id="ofClear">ניקוי החודש</button></div>
-  <div class="row">${(()=>{const [Y,M]=m.split("-").map(Number); const last=new Date(Y,M,0).getDate(); let out="";
-    for(let dd=1;dd<=last;dd++){const k=`${Y}-${pad2(M)}-${pad2(dd)}`; const inf=dayInfo(k);
-      if(inf.off&&!isOfficeDay(k)) continue;
-      out+=`<label style="border:1px solid var(--line);border-radius:8px;padding:3px 7px;background:${isOfficeDay(k)?"var(--accent-2)":"#fff"}">
-        <input type="checkbox" onchange="toggleOffice('${k}')" ${isOfficeDay(k)?"checked":""}> ${dd}/${M}</label>`;}
-    return out;})()}</div></div>
+  <div class="mute">ימי משרד בחודש: <b>${officeDays(m)}</b> — נספרים לפי רישומי שעות שסומנו "במשרד", ומהם מחושבות הנסיעות בדרישת התשלום.
+    ${officeList(m).length?"("+officeList(m).map(d=>heDate(d)).join(" · ")+")":""}</div>
+  ${(()=>{const hist=["2026-06","2026-07","2026-08","2026-09"];
+    return hist.includes(m)?`<div class="row noprint"><button class="ghost" id="ofSheet">עדכון ימי משרד היסטוריים (יוני–ספטמבר)</button></div>`:"";})()}
 `;
 }
 function timeForm(x){
@@ -1250,9 +1246,6 @@ window.quickBill=id=>{const t=taskById(id); if(!t)return;
   const box=$("#billForm"); box.innerHTML=billForm(b,false); wireBillForm(b,false); box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.drill=k=>{S.drill=(S.drill===k?null:k);renderAll();showTab("status");
   const el=$("#drillBox"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
-window.toggleOffice=k=>{DB.officeDates=DB.officeDates||[];
-  if(isOfficeDay(k)) DB.officeDates=DB.officeDates.filter(x=>x!==k); else DB.officeDates.push(k);
-  saveLocal(); renderAll(); showTab("time");};
 window.pickDay=k=>{S.calDay=k;S.calMonth=monthOf(k);renderAll();showTab("cal");
   const el=$("#dayPanel"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
 window.planDel=id=>{DB.plans=DB.plans.filter(p=>p.id!==id);saveLocal();renderAll();showTab("cal");};
@@ -1432,28 +1425,23 @@ function wire(){
     const av=availableFor(t); $("#pAvail").textContent="אפשר לתכנן עוד "+f1(av)+" שעות במשימה הזו";
     const h=$("#pHours"); h.max=av; if(+h.value>av) h.value=av;};
   if(el("ofSheet")) el("ofSheet").onclick=()=>{
-    const preset=["2026-06-22","2026-06-23","2026-06-24","2026-06-29","2026-06-30","2026-07-05","2026-07-06","2026-07-07","2026-07-08","2026-07-13","2026-07-14","2026-07-15","2026-07-16","2026-07-19","2026-07-20","2026-07-21","2026-07-26","2026-07-27","2026-07-29","2026-08-04","2026-08-05","2026-08-11","2026-08-19","2026-08-25","2026-08-26","2026-08-31","2026-09-02","2026-09-08","2026-09-09"];
+    const preset=["2026-06-22","2026-06-23","2026-06-24","2026-06-29","2026-06-30",
+      "2026-07-05","2026-07-06","2026-07-07","2026-07-08","2026-07-13","2026-07-14","2026-07-15","2026-07-16",
+      "2026-07-19","2026-07-20","2026-07-21","2026-07-26","2026-07-27","2026-07-29",
+      "2026-08-04","2026-08-05","2026-08-11","2026-08-19","2026-08-25","2026-08-26","2026-08-31",
+      "2026-09-02","2026-09-08","2026-09-09"];
     const months=[...new Set(preset.map(d=>monthOf(d)))];
-    DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>!months.includes(monthOf(d))),...preset])];
+    DB.time.forEach(x=>{ if(months.includes(monthOf(x.date))) x.office=preset.includes(x.date); });
     months.forEach(m=>{let t=DB.travel.find(x=>x.month===m); if(!t){t={month:m,km:80,rate:DB.settings.kmRate};DB.travel.push(t);}
-      t.days=preset.filter(d=>monthOf(d)===m).length;});
-    saveLocal();renderAll();showTab("time");toast("ימי המשרד עודכנו לפי דוח הנוכחות");};
-  if(el("ofAuto")) el("ofAuto").onclick=()=>{
-    const m=S.timeMonth||defaultMonth();
-    const t=DB.travel.find(x=>x.month===m); const n=t&&t.days!=null&&t.days!==""?num(t.days):0;
-    if(!n){toast("אין מספר ימים בדרישה לחודש הזה");return;}
-    const byDay={}; DB.time.filter(x=>monthOf(x.date)===m).forEach(x=>{byDay[x.date]=(byDay[x.date]||0)+num(x.hours);});
-    const days=Object.entries(byDay).filter(([d])=>!dayInfo(d).off).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([d])=>d);
-    if(!days.length){toast("אין ימים עם שעות בחודש הזה");return;}
-    DB.officeDates=[...new Set([...(DB.officeDates||[]).filter(d=>monthOf(d)!==m),...days])];
-    saveLocal();renderAll();showTab("time");toast("סומנו "+days.length+" ימים — אפשר לתקן ידנית");};
-  if(el("ofClear")) el("ofClear").onclick=()=>{const m=S.timeMonth||defaultMonth();
-    DB.officeDates=(DB.officeDates||[]).filter(d=>monthOf(d)!==m);
-    saveLocal();renderAll();showTab("time");toast("סימוני החודש נוקו");};
+      const want=preset.filter(d=>monthOf(d)===m).length, got=officeList(m).length;
+      t.days=(want===got)?"":want; });
+    saveLocal();renderAll();showTab("time");
+    toast("ימי המשרד ההיסטוריים עודכנו");};
   if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
-    DB.officeDates=DB.officeDates||[];
-    if(isOfficeDay(k)) DB.officeDates=DB.officeDates.filter(x=>x!==k); else DB.officeDates.push(k);
-    saveLocal();renderAll();showTab("cal");toast(isOfficeDay(k)?"סומן יום משרד":"הוסר סימון");};
+    const ents=DB.time.filter(x=>x.date===k);
+    if(!ents.length){toast("אין רישומי שעות ביום הזה");return;}
+    const on=!isOfficeDay(k); ents.forEach(x=>{x.office=on;});
+    saveLocal();renderAll();showTab("cal");toast(on?"היום סומן כיום משרד":"הסימון הוסר");};
   if(el("pAdd")) el("pAdd").onclick=()=>{const tid=$("#pTask").value; let h=+$("#pHours").value||0;
     const t=taskById(tid);
     if(!tid||!h){toast("צריך משימה ושעות");return;}
@@ -1607,7 +1595,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.29.1";
+const VER="3.30.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
