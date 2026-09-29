@@ -82,31 +82,33 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 #toast{position:fixed;bottom:14px;right:14px;background:var(--ink);color:#fff;padding:9px 14px;border-radius:9px;font-size:14px;opacity:0;transition:.25s;z-index:50}
 #toast.show{opacity:1}
 @media (max-width:680px){
- main{padding:10px 8px 40px}
- nav button,#navBack{font-size:13.5px;padding:6px 11px}
- .cards{gap:6px}.card .v{font-size:18px}
- .row{gap:6px}
- label{font-size:12.5px}
- select,input,textarea{font-size:14.5px;padding:6px 8px;max-width:100%}
- input[type=number]{width:84px}input[type=date]{width:140px}
- .scroll{overflow-x:hidden;border:none;background:transparent}
- table{border:none;background:transparent;font-size:13.5px}
- thead{display:none}
- tbody,tfoot,tr,td{display:block;width:100%}
- tbody tr,tfoot tr{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-   padding:7px 10px;margin-bottom:6px}
- tfoot tr{background:var(--accent-2)}
- td{border:none;padding:2px 0;white-space:normal;display:flex;gap:8px;justify-content:space-between;align-items:baseline}
- td::before{content:attr(data-l);color:var(--ink-2);font-size:12px;flex:0 0 auto}
- td:first-child{font-weight:700;font-size:15px;border-bottom:1px solid var(--line);
-   padding-bottom:5px;margin-bottom:4px}
- td:first-child::before{content:""}
- td:empty{display:none}
- .plan .r{font-size:13.5px;padding:6px 8px}
- .cal .d{min-height:62px;font-size:11px}
- .grid2{grid-template-columns:1fr}
-}
-@media print{
+ main{padding:8px 6px 30px}
+ nav{flex-wrap:wrap;overflow:visible;padding:6px;gap:4px}
+ nav button,#navBack{font-size:12.5px;padding:5px 9px}
+ header{padding:8px 10px}header h1{font-size:16px}
+ .cards{gap:5px}.card{padding:6px 7px}.card .v{font-size:16px}.card .k,.card .n{font-size:11px}
+ .row{gap:5px;margin:6px 0}
+ label{font-size:12px}
+ select,input,textarea{font-size:14px;padding:5px 7px;max-width:100%}
+ input[type=number]{width:74px}input[type=date]{width:128px}
+ .m-hide{display:none!important}
+ .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+ table{font-size:11.5px}
+ th,td{padding:4px 5px;white-space:nowrap}
+ th{font-size:10.5px}
+ button.mini{padding:1px 5px;font-size:11.5px}
+ .plan .r{font-size:12.5px;padding:5px 7px}
+ .plan .r b{min-width:38px}.plan .r span.m{min-width:56px;font-size:11.5px}
+ h2{font-size:13px;margin:10px 0 4px}
+ .grid2{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .cal{gap:2px}
+ .cal .d{min-height:44px;padding:2px;font-size:10px;border-radius:6px}
+ .cal .d .n{font-size:11px}
+ .cal .d .c{font-size:9px;padding:0 2px;margin-top:1px}
+ .cal .d .t{font-size:9px}
+ .legend{font-size:10.5px;gap:6px;margin:4px 0}
+ details>summary{font-size:12.5px}
+}@media print{
  nav,.noprint,header .meta,#lock{display:none!important}
  thead{display:table-header-group}
  tbody,tfoot{display:table-row-group}
@@ -114,6 +116,7 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  td{display:table-cell}
  td::before{content:""}
  td:first-child{border-bottom:1px solid #ddd;margin:0;font-weight:400;font-size:9px}
+ .m-hide{display:table-cell!important}
  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:6px 0}
  header h1{font-size:14px}
  body{background:#fff;font-size:10px}
@@ -555,9 +558,10 @@ function card(k,v,n,cls,drill){
   return `<div class="card" ${drill?`style="cursor:pointer" onclick="drill('${drill}')"`:""}>
     <div class="k">${k}${drill?' <span class="mute">›</span>':""}</div>
     <div class="v ${cls||""}">${v}</div>${n?`<div class="n">${n}</div>`:""}</div>`;}
-function table(head,rows,foot){
-  const td=(c,i)=>`<td data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;
-  return `<div class="scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+function table(head,rows,foot,keep){
+  const cls=i=>(keep&&keep.length&&keep.indexOf(i)<0)?' class="m-hide"':'';
+  const td=(c,i)=>`<td${cls(i)} data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;
+  return `<div class="scroll"><table><thead><tr>${head.map((h,i)=>`<th${cls(i)}>${h}</th>`).join("")}</tr></thead>
    <tbody>${rows.length?rows.map(r=>`<tr>${r.map(td).join("")}</tr>`).join("")
    :`<tr><td colspan="${head.length}" class="mute">אין נתונים</td></tr>`}</tbody>
    ${foot?`<tfoot><tr>${foot.map(td).join("")}</tr></tfoot>`:""}</table></div>`;}
@@ -684,12 +688,12 @@ function viewStatus(){
     attention.map(t=>[tName(t),t.year,t.type,t.submit,f0(taskMine(t)),
       `<button class="mini" onclick="quickBill('${t.id}')">➕ לדרישת תשלום</button>
        <button class="mini" onclick="markNoBill('${t.id}')">לא לגבייה</button>
-       <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]))}
+       <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]),null,[0,3,4,5])}
     <div class="mute">שורה שתטופל תיעלם מהרשימה.</div>`:""}
   <h2>מגמה חודשית</h2>
   ${table(["חודש","שעות","כלליות","ימי משרד","שכ\"ט שנדרש","החלק שלך","נסיעות","לגבייה"],
     monthsList().map(m=>{const s=monthSummary(m);
-      return [m,f1(s.hours),f1(s.gen),officeDays(m),f0(s.fee),f0(s.mine),f0(s.travel),f0(s.due)];}))}
+      return [m,f1(s.hours),f1(s.gen),officeDays(m),f0(s.fee),f0(s.mine),f0(s.travel),f0(s.due)];}),null,[0,1,5,7])}
   ${printBtn()}`;
 }
 function taskRow(t){
@@ -741,7 +745,7 @@ function viewTasks(){
   </div>
   <div id="taskForm"></div>
   ${table(["לקוח","שנה","מוצר","הגשה","עבודה","יעד הגשה","צפי","בפועל","נותרו","שכ\"ט","נוסף","שלך","₪/ש׳ צפי","₪/ש׳ בפועל","תשלום",""],
-    list.map(taskRow))}
+    list.map(taskRow),null,[0,1,3,8,11,15])}
   ${printBtn()}`;
 }
 function taskForm(t){
@@ -875,7 +879,7 @@ function viewTime(){
         t?tName(t):(x.clientId?clientName(x.clientId):"כלליות"),
         t?`${t.year} ${t.type}`:"—",esc(x.desc||""),x.office?"משרד":"בית",f1(x.hours),
         `<button class="mini" onclick="editTime('${x.id}')">עריכה</button>`];}),
-    ["סה\"כ","","","","","",f1(tot),""])}
+    ["סה\"כ","","","","","",f1(tot),""],[0,2,6,7])}
   <h2>ימי עבודה מהמשרד — ${m}</h2>
   <div class="panel"><div class="mute">סימון יום משרד קובע את מספר ימי הנסיעות בדרישת התשלום. מסומנים כרגע: <b>${officeDays(m)}</b></div>
   <div class="row noprint"><button class="act" id="ofSheet">עדכון מדוח הנוכחות (יוני–ספטמבר)</button>
@@ -926,7 +930,7 @@ function viewBills(){
     <button class="ghost" id="bMail">✉ שליחה במייל</button>
   </div>
   <div id="billForm"></div>
-  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה","מצב","הערה",""],rows,totals)}
+  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה","מצב","הערה",""],rows,totals,[0,7,9,10,12])}
   <h2>נסיעות וסיכום</h2>
   <div class="panel noprint"><div class="grid2">
     <label>ימי משרד (מסומנים: ${officeDays(m)})<input id="trD" type="number" value="${tr.days==null||tr.days===""?officeDays(m):num(tr.days)}"></label>
@@ -979,7 +983,7 @@ function viewReports(){
         list.map(t=>[tName(t),t.year,t.type,t.work,heDate(t.sched),
           f1(t.est),f1(taskHours(t.id)),f1(taskRemaining(t))]),
         ["סה\"כ","","","","",f1(list.reduce((s,t)=>s+num(t.est),0)),
-          f1(list.reduce((s,t)=>s+taskHours(t.id),0)),f1(list.reduce((s,t)=>s+taskRemaining(t),0))]);
+          f1(list.reduce((s,t)=>s+taskHours(t.id),0)),f1(list.reduce((s,t)=>s+taskRemaining(t),0))],[0,1,4,7]);
     }
     if(r==="sched"){
       const from=S.sf||iso(t0), to=S.st||iso(new Date(t0.getFullYear(),t0.getMonth()+1,0));
@@ -992,7 +996,7 @@ function viewReports(){
       table(["תאריך","יום","לקוח","שנה","סוג","סטטוס עבודה","שעות מתוכננות"],
         list.map(p=>{const t=taskById(p.taskId)||{};
           return [heDate(p.date),DAYS[new Date(p.date).getDay()],tName(t),t.year||"",t.type||"",t.work||"",f1(p.hours)];}),
-        ["סה\"כ","","","","","",f1(list.reduce((s,p)=>s+num(p.hours),0))]);
+        ["סה\"כ","","","","","",f1(list.reduce((s,p)=>s+num(p.hours),0))],[0,2,6]);
     }
     if(r==="pay"){
       const ms=monthsList(), lo=S.pf&&ms.includes(S.pf)?S.pf:defaultMonth(), hi=S.pt&&ms.includes(S.pt)?S.pt:lo;
@@ -1006,7 +1010,7 @@ function viewReports(){
       const monthly=table(["חודש","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","החלק שלך","נסיעות","סה\"כ לגבייה","שולם","יתרה"],
         sel.map(s=>[s.m,f0(s.fee),f0(s.extra),f0(s.byRate),f0(s.mine),f0(s.travel),f0(s.due),f0(s.paid),f0(s.due-s.paid)]),
         sel.length>1?["סה\"כ",f0(sum(s=>s.fee)),f0(sum(s=>s.extra)),f0(sum(s=>s.byRate)),f0(sum(s=>s.mine)),
-          f0(sum(s=>s.travel)),f0(sum(s=>s.due)),f0(sum(s=>s.paid)),f0(sum(s=>s.due)-sum(s=>s.paid))]:null);
+          f0(sum(s=>s.travel)),f0(sum(s=>s.due)),f0(sum(s=>s.paid)),f0(sum(s=>s.due)-sum(s=>s.paid))]:null,[0,4,6,8]);
       if(a===b){
         const s=sel[0]||{bills:[],fee:0,extra:0,mine:0,travel:0,due:0};
         const withNote=S.payNote!==false;
@@ -1017,7 +1021,7 @@ function viewReports(){
           table(H,s.bills.map(x=>{const r=[clientName(x.clientId||(x.taskId&&taskById(x.taskId)||{}).clientId),
             x.year,heDate(x.date),f0(x.fee),f0(x.extra),f0(billRateAmount(x)),f1(billHours(x)),
             f0(billAmount(x)),f0(billPaid(x)),f0(billDue(x))];
-            if(withNote) r.push(esc(x.note||"")); return r;}),F)
+            if(withNote) r.push(esc(x.note||"")); return r;}),F,[0,7,9])
           +`<div class="mute">החזר נסיעות: ${f0(s.travel)} ₪ · סה"כ לגבייה: <b>${f0(s.due)} ₪</b></div>`+monthly;
       }
       return head+monthly;
@@ -1042,7 +1046,7 @@ function viewReports(){
         ${card("יתרה לגבייה",f0(sumA-sumP)+" ₪","",sumA-sumP>0?"warn":"good")}
         ${card("שורות",list.length,"")}</div>
       ${table(["חודש","לקוח","שנה","סכום","שולם","יתרה","מצב","תאריך תשלום","אופן","אסמכתא",""],rows,
-        ["סה\"כ","","",f0(sumA),f0(sumP),f0(sumA-sumP),"","","","",""])}
+        ["סה\"כ","","",f0(sumA),f0(sumP),f0(sumA-sumP),"","","","",""],[1,3,5,6,10])}
       <h2>יתרות לפי לקוח</h2>
       ${table(["לקוח","יתרה"],Object.entries(byClient).filter(([,v])=>Math.abs(v)>0.01)
         .sort((a,b)=>b[1]-a[1]).map(([n,v])=>[n,f0(v)]))}`;
@@ -1082,7 +1086,7 @@ function viewClients(){
     <input id="clNum" placeholder="מספר תיק" style="width:120px">
     <button class="act" id="clAdd">הוספה</button></div>
   <div id="clientForm"></div>
-  ${table(["לקוח","מספר תיק","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה",""],rows)}`;
+  ${table(["לקוח","מספר תיק","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה",""],rows,null,[0,2,6,8])}`;
 }
 function viewData(){
   const st=dState();
@@ -1543,7 +1547,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.19.0";
+const VER="3.20.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
