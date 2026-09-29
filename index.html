@@ -118,7 +118,20 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  .cal .d .t{font-size:9px}
  .legend{font-size:10.5px;gap:6px;margin:4px 0}
  details>summary{font-size:12.5px}
-}@media print{
+}.printHead{display:none}
+.printHead .ph-title{font-size:16px;font-weight:800;color:var(--ink)}
+.printHead .ph-sub{font-size:11px;color:var(--ink-2)}
+@media print{
+ *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+ .printHead{display:block;border-bottom:2px solid var(--accent);margin:0 0 6px;padding-bottom:4px}
+ #s-status,#s-tasks,#s-cal,#s-time,#s-bills,#s-clients,#s-data{display:none!important}
+ header{display:none!important}
+ th{background:#e2f1fd!important;color:#0d6cb4!important;border-bottom:1px solid #a9d6f7}
+ tfoot td{background:#eaf4fe!important}
+ table{border:1px solid #c9dcef}
+ .note,.noteFull{max-width:520px!important;white-space:normal!important;display:-webkit-box;
+   -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+ td{vertical-align:top}
  nav,.noprint,header .meta,#lock{display:none!important}
  thead{display:table-header-group}
  tbody,tfoot{display:table-row-group}
@@ -127,7 +140,6 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  td::before{content:""}
  td:first-child{border-bottom:1px solid #ddd;margin:0;font-weight:400;font-size:9px}
  .m-hide{display:table-cell!important}
- .note,.noteFull{max-width:none!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
  td{white-space:normal}
  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:6px 0}
  header h1{font-size:14px}
@@ -563,6 +575,62 @@ function importWorkbook(buf){
   db.settings.hoursPerDay=gv("E12")||gv("B12")||7;
   db.settings.billEmail=DB.settings.billEmail||'dekel@homek.co.il';
   return db;
+}
+
+/* ============ save reports to a folder ============ */
+let repDir=null;
+function idbGet(k){return new Promise(res=>{const q=indexedDB.open("cpa-fs",1);
+  q.onupgradeneeded=()=>q.result.createObjectStore("h");
+  q.onsuccess=()=>{const tx=q.result.transaction("h","readonly").objectStore("h").get(k);
+    tx.onsuccess=()=>res(tx.result||null); tx.onerror=()=>res(null);};
+  q.onerror=()=>res(null);});}
+function idbSet(k,v){return new Promise(res=>{const q=indexedDB.open("cpa-fs",1);
+  q.onupgradeneeded=()=>q.result.createObjectStore("h");
+  q.onsuccess=()=>{const tx=q.result.transaction("h","readwrite").objectStore("h").put(v,k);
+    tx.onsuccess=()=>res(true); tx.onerror=()=>res(false);};
+  q.onerror=()=>res(false);});}
+async function getReportDir(force){
+  if(!window.showDirectoryPicker) return null;
+  if(!force){ if(repDir) return repDir;
+    const h=await idbGet("dir");
+    if(h){ const perm=await h.queryPermission({mode:"readwrite"});
+      if(perm==="granted"||(await h.requestPermission({mode:"readwrite"}))==="granted"){repDir=h;return h;} } }
+  const h=await window.showDirectoryPicker({mode:"readwrite"});
+  repDir=h; await idbSet("dir",h); return h;
+}
+function reportHtml(title,inner){
+  const css=document.querySelector("style")?document.querySelector("style").textContent:"";
+  return `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>${esc(title)}</title><style>${css}
+body{background:#fff}main{padding:14px 18px}.noprint{display:none}
+.printHead{display:block;border-bottom:2px solid var(--accent);margin:0 0 8px;padding-bottom:5px}
+.note,.noteFull{max-width:520px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+</style></head><body><main>${inner}</main></body></html>`;
+}
+async function saveReportToFolder(){
+  const r=S.rep||"open", name=(typeof REPNAMES!=="undefined"&&REPNAMES[r])||"דוח";
+  const sec=$("#s-reports"); if(!sec) return;
+  const clone=sec.cloneNode(true);
+  clone.querySelectorAll(".noprint").forEach(e=>e.remove());
+  const html=reportHtml(name,clone.innerHTML);
+  const d=new Date();
+  const stamp=d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+  const fname=`${name} ${stamp}.html`;
+  if(!window.showDirectoryPicker){
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([html],{type:"text/html;charset=utf-8"}));
+    a.download=fname; a.click(); toast("הדפדפן לא תומך בשמירה לתיקייה — הקובץ ירד לתיקיית ההורדות");
+    return;}
+  try{
+    const dir=await getReportDir(false);
+    if(!dir){toast("לא נבחרה תיקייה");return;}
+    const sub=await dir.getDirectoryHandle(name,{create:true});
+    const fh=await sub.getFileHandle(fname,{create:true});
+    const wstream=await fh.createWritable();
+    await wstream.write(html); await wstream.close();
+    toast("נשמר: "+name+" / "+fname);
+  }catch(e){ if(e&&e.name==="AbortError"){toast("בוטל");return;}
+    toast("השמירה נכשלה: "+(e.message||"שגיאה")); }
 }
 
 /* ============ shared ui ============ */
@@ -1020,6 +1088,8 @@ function billForm(b,free){
   <div class="mute">אם משאירים את הסכום הידני ריק — הסכום שלך = שליש משכ"ט המשרד ועוד שכ"ט נוסף.
   אפשר להזין סכום ידני, או תעריף לשעה שיוכפל בשעות שבוצעו בפועל.</div></div>`;
 }
+const REPNAMES={open:"משימות פתוחות",sched:"לוח זמנים",pay:"דרישת תשלום",collect:"גבייה",
+  nobill:"לא לגבייה",feas:"בדיקות כדאיות",drill:"לפי לקוח"};
 function viewReports(){
   const r=S.rep||"open";
   const t0=today();
@@ -1166,8 +1236,12 @@ function viewReports(){
     ${["open|פתוחים","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
     <button class="ghost" id="xlsx">ייצוא לאקסל</button>
-    <button class="ghost" onclick="window.print()">שמירה כ־PDF / הדפסה</button>
-  </div>${body()}`;
+    <button class="ghost" onclick="window.print()">הדפסה</button>
+    <button class="act" id="saveRep">💾 שמירה לתיקייה</button>
+  </div>
+  <div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
+    <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>
+  ${body()}`;
 }
 function viewClients(){
   const q=(S.clientQ||"").trim();
@@ -1253,7 +1327,9 @@ function viewData(){
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
     <label class="ghost" style="cursor:pointer">טעינת גיבוי JSON<input type="file" id="jsonIn" accept=".json" style="display:none"></label>
-    <button class="ghost" id="xlsxOut">ייצוא לאקסל</button></div></div>`;
+    <button class="ghost" id="xlsxOut">ייצוא לאקסל</button>
+    <button class="ghost" id="repDirBtn">בחירת תיקיית הדוחות</button></div>
+    <div class="mute">הדוחות נשמרים בתיקייה שתבחרי, בתת-תיקייה לפי שם הדוח, בשם הכולל את תאריך ההפקה.</div></div>`;
 }
 
 /* ============ actions ============ */
@@ -1677,6 +1753,8 @@ function wire(){
   if(el("dc")) el("dc").onchange=e=>{S.dc=e.target.value;renderAll();};
   if(el("dy")) el("dy").onchange=e=>{S.dy=e.target.value;renderAll();};
   if(el("xlsx")) el("xlsx").onclick=exportXlsx;
+  if(el("saveRep")) el("saveRep").onclick=()=>saveReportToFolder();
+  if(el("repDirBtn")) el("repDirBtn").onclick=async()=>{ await getReportDir(true); toast("התיקייה נבחרה"); };
   if(el("xlsxOut")) el("xlsxOut").onclick=exportXlsx;
   if(el("clQ")) el("clQ").onchange=e=>{S.clientQ=e.target.value;renderAll();showTab("clients");};
   if(el("clFilterType")) el("clFilterType").onchange=e=>{S.clientType=e.target.value;renderAll();showTab("clients");};
@@ -1758,7 +1836,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.45.0";
+const VER="3.46.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
