@@ -71,7 +71,7 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .pill.done{background:#e2e7fb;border-color:#bcc6f0;color:#31409b;font-weight:600}
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
 .cal .h{font-size:12px;color:var(--ink-2);text-align:center;padding:2px}
-.cal .d{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-height:58px;padding:3px 4px;font-size:11.5px;cursor:pointer}
+.cal .d{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-height:62px;padding:3px 4px;font-size:11.5px;cursor:pointer}
 .cal .d.off{background:#edf1f6;color:#8b99ab}
 .cal .d.vac{background:#f0ebf8;color:#6b5a8a;border-color:#d9cfec}
 .cal .d.vac .n{color:#5c4a80}
@@ -81,7 +81,9 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .cal .d .t.plan{color:#0d6cb4;font-weight:700}
 .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin:6px 0}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-left:4px;vertical-align:-1px}
-.cal .d .c{background:#dff0fd;color:#0d6cb4;border:1px solid #a9d6f7;border-radius:4px;padding:1px 3px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal .d .chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;margin-top:2px}
+.cal .d .c{background:#dff0fd;color:#0d6cb4;border:1px solid #a9d6f7;border-radius:4px;padding:0 3px;
+ font-size:9.5px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;min-width:0}
 .cal .d .c.done{background:#e2e7fb;color:#31409b;border-color:#bcc6f0}
 .cal .d.sel{outline:2px solid var(--accent)}
 .pill.cancel{background:#eff1f4;color:#7b8798;border-color:#dde3ea}
@@ -111,7 +113,8 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  .cal{gap:2px}
  .cal .d{min-height:44px;padding:2px;font-size:10px;border-radius:6px}
  .cal .d .n{font-size:11px}
- .cal .d .c{font-size:9px;padding:0 2px;margin-top:1px}
+ .cal .d .c{font-size:8.5px;padding:0 2px}
+ .cal .d .chips{grid-template-columns:1fr;gap:1px}
  .cal .d .t{font-size:9px}
  .legend{font-size:10.5px;gap:6px;margin:4px 0}
  details>summary{font-size:12.5px}
@@ -124,6 +127,8 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  td::before{content:""}
  td:first-child{border-bottom:1px solid #ddd;margin:0;font-weight:400;font-size:9px}
  .m-hide{display:table-cell!important}
+ .note,.noteFull{max-width:none!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+ td{white-space:normal}
  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:6px 0}
  header h1{font-size:14px}
  body{background:#fff;font-size:10px}
@@ -617,11 +622,18 @@ function drillBox(){
       ["₪ לשעה כולל צפי",f0((base+rem)>0?(billed+notB)/(base+rem):0)]]));
   }
   if(k==="due"){
-    return box("נדרש לגבייה — לפי חודש",table(["חודש","שכ\"ט","נוסף","החלק שלך","נסיעות","לגבייה"],
-      monthsList().map(m=>{const x=monthSummary(m);return [m,f0(x.fee),f0(x.extra),f0(x.mine),f0(x.travel),f0(x.due)];}),
-      ["סה\"כ","","",f0(monthsList().reduce((s,m)=>s+monthSummary(m).mine,0)),
-       f0(monthsList().reduce((s,m)=>s+monthTravel(m),0)),
-       f0(monthsList().reduce((s,m)=>s+monthSummary(m).due,0))]));
+    const ms=monthsList();
+    return box("נדרש לגבייה — לפי חודש (ללא נסיעות)",
+      table(["חודש","שכ\"ט משרד","נוסף","לפי שעות","החלק שלי","שולם","יתרה"],
+      ms.map(m=>{const x=monthSummary(m);
+        return [m,f0(x.fee),f0(x.extra),f0(x.byRate),f0(x.mine),f0(x.paid),f0(x.mine-x.paid)];}),
+      ["סה\"כ",f0(ms.reduce((s,m)=>s+monthSummary(m).fee,0)),
+       f0(ms.reduce((s,m)=>s+monthSummary(m).extra,0)),
+       f0(ms.reduce((s,m)=>s+monthSummary(m).byRate,0)),
+       f0(ms.reduce((s,m)=>s+monthSummary(m).mine,0)),
+       f0(ms.reduce((s,m)=>s+monthSummary(m).paid,0)),
+       f0(ms.reduce((s,m)=>s+(monthSummary(m).mine-monthSummary(m).paid),0))])
+      +`<div class="mute">נסיעות נגבות בנפרד: ${f0(ms.reduce((s,m)=>s+monthTravel(m),0))} ₪ בסך הכול. הן מופיעות במסך דרישות התשלום ובדוח דרישת תשלום.</div>`);
   }
   if(k==="notbilled"){
     const list=mine.filter(t=>!billedTask(t.id));
@@ -660,7 +672,8 @@ function viewStatus(){
   const planned=ph(planIn(t0,eom)), free=cap-planned;
   const late=DB.plans.filter(p=>p.date<iso(t0)&&(()=>{const t=taskById(p.taskId);return t&&isOpen(t);})());
   const review=DB.tasks.filter(t=>t.decision==="בבדיקה");
-  const dueAll=monthsList().reduce((s,m)=>s+monthSummary(m).due,0);
+  const dueAll=DB.bills.reduce((s,b)=>s+billAmount(b),0);
+  const paidAll=DB.bills.reduce((s,b)=>s+billPaid(b),0);
   const todayIso=iso(t0);
   const needBill=mine.filter(t=>(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id))
     .map(t=>({t,why:"טרם נדרש תשלום",kind:"bill"}));
@@ -668,8 +681,12 @@ function viewStatus(){
   const workedNotBilled=open.filter(t=>taskHours(t.id)>0&&!billedTask(t.id))
     .map(t=>({t,why:"בוצעו "+f1(taskHours(t.id))+" שעות וטרם נדרש תשלום",kind:"bill"}));
   const latePlan=open.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר ("+heDate(t.sched)+")",kind:"plan"}));
-  const seen={}; const attention=[...needBill,...workedNotBilled,...latePlan,...noDate]
-    .filter(a=>{ if(seen[a.t.id]) return false; seen[a.t.id]=true; return true; });
+  const zeroBills=DB.bills.filter(b=>billAmount(b)<=0.001).map(b=>{
+    const t=b.taskId?taskById(b.taskId):null;
+    return {t:t||{id:"",clientId:b.clientId,year:b.year,type:"",submit:"דרישה",notes:""},
+      bill:b,why:"דרישת תשלום על 0 ₪ — חסר שכ\"ט או שעות",kind:"zero"};});
+  const seen={}; const attention=[...needBill,...zeroBills,...workedNotBilled,...latePlan,...noDate]
+    .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
   return `${printBtn()}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
    ${card("משימות לגבייה",mine.length,[...new Set(mine.map(t=>t.clientId))].length+" לקוחות","","tasks")}
@@ -678,7 +695,7 @@ function viewStatus(){
    ${card("שעות בפועל",f1(allHours),"מתוכן כלליות "+f1(gen),"","hours")}
    ${card("₪ לשעה "+(mode==="act"?"(נדרש)":"(כולל צפי)"),f0(rate)||"—","יעד "+f0(DB.settings.target),
       rate==null?"":(Math.round(rate)>=DB.settings.target?"good":"bad"),"rate")}
-   ${card("נדרש לגבייה",f0(dueAll)+" ₪","כולל נסיעות","","due")}
+   ${card("נדרש לגבייה",f0(dueAll)+" ₪","ללא נסיעות · שולם "+f0(paidAll),"","due")}
    ${card("טרם דרשתי",f0(notBilledSum)+" ₪",notBilled.length+" משימות",notBilled.length?"warn":"good","notbilled")}
    ${card("משימות פתוחות",open.length,f1(remaining)+" שעות שנותרו","","open")}
    ${card("שעות פנויות",f1(free),"עד סוף החודש · קיבולת "+f1(cap),free<0?"bad":"","free")}
@@ -695,14 +712,15 @@ function viewStatus(){
   ${attention.length?table(["לקוח","שנה","סוג","סטטוס","סיבה","החלק שלך","הערה","טיפול"],
     attention.map(a=>{const t=a.t;
       return [tName(t),t.year,t.type,t.submit,
-        a.kind==="bill"?`<span class="flag">${a.why}</span>`:`<span class="warn">${a.why}</span>`,
+        (a.kind==="bill"||a.kind==="zero")?`<span class="flag">${a.why}</span>`:`<span class="warn">${a.why}</span>`,
         f0(taskMine(t)),
-        `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
-        (a.kind==="bill"
-          ? `<button class="mini" onclick="quickBill('${t.id}')">➕ לדרישת תשלום</button>
-             <button class="mini" onclick="markNoBill('${t.id}')">לא לגבייה</button>`
-          : `<button class="mini" onclick="planTask('${t.id}')">תכנון בלוח</button>`)+
-        ` <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`];}),null,[0,4,5,7])
+        t.id?`<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`:"",
+        (a.kind==="zero"
+          ? `<button class="mini" onclick="editBill('${a.bill.id}')">פתיחת הדרישה</button>`
+          : a.kind==="bill"
+            ? `<button class="mini" onclick="quickBill('${t.id}')">➕ לדרישת תשלום</button>`
+            : `<button class="mini" onclick="planTask('${t.id}')">תכנון בלוח</button>`)+
+        (t.id?` <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`:"")];}),null,[0,4,5,7])
     +`<div class="mute">משימות שהסתיימו וטרם נדרש עליהן תשלום, משימות פתוחות ללא יעד הגשה, ומשימות שהיעד שלהן עבר.</div>`
    :`<div class="panel"><span class="ok">אין משימות שדורשות טיפול ✓</span></div>`}
   <h2>מגמה חודשית</h2>
@@ -840,9 +858,10 @@ function viewCal(){
     if(!dt) return `<div></div>`;
     const k=iso(dt), inf=dayInfo(dt), ph=planHours(k), ah=actualOn(k);
     const vac=DB.offDays.includes(k), off=isOfficeDay(k);
-    const chips=DB.plans.filter(p=>p.date===k).slice(0,3).map(p=>{const t=taskById(p.taskId);
-      return `<div class="c">${esc(t?clientName(t.clientId):"—")} ${f1(p.hours)}</div>`;}).join("")
-      +(ah?`<div class="c done">בפועל ${f1(ah)}</div>`:"");
+    const dayPlans=DB.plans.filter(p=>p.date===k);
+    const chips=`<div class="chips">`+dayPlans.map(p=>{const t=taskById(p.taskId);
+      return `<div class="c" title="${esc(t?taskLabel(t):"")}">${esc(t?tName(t):"—")} ${f1(p.hours)}</div>`;}).join("")
+      +(ah?`<div class="c done">בפועל ${f1(ah)}</div>`:"")+`</div>`;
     return `<div class="d ${vac?"vac":(inf.off?"off":"")} ${k===iso(today())?"today":""} ${k===S.calDay?"sel":""}" onclick="pickDay('${k}')">
       <div class="n">${dt.getDate()}${off?' <span class="t">🏢</span>':""}${inf.label?` <span class="t">${vac?"חופשה":inf.label}</span>`:""}</div>
       ${ph?`<div class="t plan">מתוכנן ${f1(ph)}</div>`:""}${chips}</div>`;
@@ -1012,23 +1031,33 @@ function viewReports(){
         ["לקוח","שנה","סוג","סטטוס עבודה","לו\"ז","צפי שעות","שעות בפועל","שעות שנותרו","הערה",""],
         list.map(t=>[tName(t),t.year,t.type,t.work,heDate(t.sched),
           f1(t.est),f1(taskHours(t.id)),f1(taskRemaining(t)),
-          S.hideNote[t.id]?"":`<span class="note" title="${esc(t.notes||"")}">${esc(t.notes||"")}</span>`,
+          S.hideNote[t.id]?"":`<span class="note noteFull" title="${esc(t.notes||"")}">${esc(t.notes||"")}</span>`,
           `<button class="mini noprint" onclick="toggleNote('${t.id}')">${S.hideNote[t.id]?"הצג":"הסתר"}</button>`]),
         ["סה\"כ","","","","",f1(list.reduce((s,t)=>s+num(t.est),0)),
           f1(list.reduce((s,t)=>s+taskHours(t.id),0)),f1(list.reduce((s,t)=>s+taskRemaining(t),0)),"",""],[0,1,7,8,9]);
     }
     if(r==="sched"){
       const from=S.sf||iso(t0), to=S.st||iso(new Date(t0.getFullYear(),t0.getMonth()+1,0));
-      const list=DB.plans.filter(p=>p.date>=from&&p.date<=to).sort((a,b)=>a.date>b.date?1:-1);
+      const plans=DB.plans.filter(p=>p.date>=from&&p.date<=to)
+        .map(p=>({date:p.date,kind:"plan",p}));
+      const offs=[]; {const dd=new Date(from);
+        while(iso(dd)<=to){const k=iso(dd), inf=dayInfo(dd);
+          if(DB.offDays.includes(k)) offs.push({date:k,kind:"off",label:"יום חופשה"});
+          else if(inf.off&&inf.label&&inf.label!=="שישי"&&inf.label!=="שבת") offs.push({date:k,kind:"off",label:inf.label});
+          dd.setDate(dd.getDate()+1);} }
+      const list=[...plans,...offs].sort((a,b)=>a.date>b.date?1:(a.date<b.date?-1:0));
+      const rows=list.map(x=>{
+        if(x.kind==="off") return [heDate(x.date),DAYS[new Date(x.date).getDay()],
+          `<span class="mute">${esc(x.label)}</span>`,"","","",""];
+        const t=taskById(x.p.taskId)||{};
+        return [heDate(x.date),DAYS[new Date(x.date).getDay()],tName(t),t.year||"",t.type||"",t.work||"",f1(x.p.hours)];});
       return `<h2>דוח לו"ז</h2>
       <div class="row noprint"><label>מ<input type="date" id="sf" value="${from}"></label>
         <label>עד<input type="date" id="st" value="${to}"></label>
         <button class="ghost" id="sToday">עד היום</button>
         <button class="ghost" id="sWeek">שבוע</button><button class="ghost" id="sMonth">עד סוף החודש</button></div>`+
-      table(["תאריך","יום","לקוח","שנה","סוג","סטטוס עבודה","שעות מתוכננות"],
-        list.map(p=>{const t=taskById(p.taskId)||{};
-          return [heDate(p.date),DAYS[new Date(p.date).getDay()],tName(t),t.year||"",t.type||"",t.work||"",f1(p.hours)];}),
-        ["סה\"כ","","","","","",f1(list.reduce((s,p)=>s+num(p.hours),0))],[0,2,6]);
+      table(["תאריך","יום","לקוח","שנה","מוצר","סטטוס עבודה","שעות מתוכננות"],rows,
+        ["סה\"כ","","","","","",f1(plans.reduce((s,x)=>s+num(x.p.hours),0))],[0,2,6]);
     }
     if(r==="pay"){
       const ms=monthsList(), lo=S.pf&&ms.includes(S.pf)?S.pf:defaultMonth(), hi=S.pt&&ms.includes(S.pt)?S.pt:lo;
@@ -1729,7 +1758,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.41.1";
+const VER="3.45.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
