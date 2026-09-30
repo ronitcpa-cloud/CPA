@@ -740,6 +740,16 @@ function drillBox(){
       f0(mine.reduce((s,t)=>s+num(t.extra),0)),f0(mine.reduce((s,t)=>s+taskMine(t),0)),
       f1(mine.reduce((s,t)=>s+num(t.est),0)),f1(mine.reduce((s,t)=>s+taskHours(t.id),0)),
       f1(mine.reduce((s,t)=>s+taskRemaining(t),0)),""]));
+  if(k==="clients"){
+    const rows=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he")).map(c=>{
+      const ts=DB.tasks.filter(t=>t.clientId===c.id), bt=ts.filter(billable);
+      const h=ts.reduce((s,t)=>s+taskHours(t.id),0);
+      return [esc(c.name),esc(c.type||"—"),ts.length,ts.filter(isOpen).length,f1(h),
+        f0(bt.reduce((s,t)=>s+num(t.fee),0)),f0(bt.reduce((s,t)=>s+taskMine(t),0))];});
+    const active=DB.clients.filter(c=>DB.tasks.some(t=>t.clientId===c.id&&isOpen(t))).length;
+    return box("לקוחות — "+DB.clients.length+" סהכ, "+active+" עם משימות פתוחות",
+      table(["לקוח","סוג","משימות","פתוחות","שעות","שכ\"ט","חלקי"],rows));
+  }
   if(k==="hours"){
     const byC={}; DB.time.forEach(x=>{const t=x.taskId?taskById(x.taskId):null;
       const n=t?tName(t):"כלליות"; byC[n]=(byC[n]||0)+num(x.hours);});
@@ -827,7 +837,8 @@ function viewStatus(){
     .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
   return `${printBtn()}${printHead("מצב פיננסי")}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
-   ${card("משימות לגבייה",mine.length,[...new Set(mine.map(t=>t.clientId))].length+" לקוחות","","tasks")}
+   ${card("לקוחות",DB.clients.length,[...new Set(mine.map(t=>t.clientId))].length+" עם משימות","","clients")}
+   ${card("משימות לגבייה",mine.length,"","","tasks")}
    ${card("שכ\"ט משרד",f0(mine.reduce((s,t)=>s+num(t.fee),0))+" ₪","","","fee")}
    ${card("חלקי",f0(dueAll+notBilledSum)+" ₪","נדרש + טרם נדרש","","share")}
    ${card("שולם",f0(paidAll)+" ₪","מתוך "+f0(dueAll)+" שנדרשו",paidAll>=dueAll-0.5&&dueAll>0?"good":"")}
@@ -1184,7 +1195,8 @@ function billForm(b,free){
   אפשר להזין סכום ידני, או תעריף לשעה שיוכפל בשעות שבוצעו בפועל.</div></div>`;
 }
 const REPNAMES={open:"משימות פתוחות",cancel:"משימות שבוטלו",sched:"לוח זמנים",pay:"דרישת תשלום",
-  collect:"גבייה",nobill:"לא לגבייה",feas:"בדיקות כדאיות",drill:"לפי לקוח",custom:"דוח מותאם"};
+  collect:"גבייה",below:"גבייה מתחת ליעד",nobill:"לא לגבייה",feas:"בדיקות כדאיות",
+  drill:"לפי לקוח",custom:"דוח מותאם"};
 const CUSTOMCOLS={
   client:{t:"לקוח",v:t=>tName(t)}, year:{t:"שנה",v:t=>t.year},
   type:{t:"מוצר",v:t=>t.type}, submit:{t:"סטטוס הגשה",v:t=>t.submit},
@@ -1232,9 +1244,53 @@ function viewReports(){
           f0(list.reduce((s,t)=>s+num(t.fee),0)),f0(list.reduce((s,t)=>s+taskMine(t),0)),"","",""],[0,5,7,8,9]);
     }
     if(r==="custom"){
-      S.cust=S.cust||{cols:["client","year","type","submit","est","act","left","mine"],
-        status:"",decision:"",client:"",year:"",type:"",bill:"",q:""};
-      const C=S.cust;
+      S.cust=S.cust||{src:"tasks",cols:["client","year","type","submit","est","act","left","mine"],
+        status:"",decision:"",client:"",year:"",type:"",bill:"",q:"",month:""};
+      const C=S.cust; C.src=C.src||"tasks";
+      const srcRow=`<div class="row"><label>מקור הנתונים<select id="cuSrc">
+        ${opts([{v:"tasks",t:"משימות"},{v:"time",t:"שעות"},{v:"bills",t:"דרישות תשלום"}],C.src)}</select></label></div>`;
+      if(C.src==="time"){
+        let L=DB.time.slice().sort((a,b)=>a.date<b.date?1:-1);
+        if(C.month) L=L.filter(x=>monthOf(x.date)===C.month);
+        if(C.client) L=L.filter(x=>{const t=x.taskId?taskById(x.taskId):null;return t&&t.clientId===C.client;});
+        if(C.q) L=L.filter(x=>{const t=x.taskId?taskById(x.taskId):null;
+          return ((t?tName(t):"כלליות")+" "+(x.desc||"")).indexOf(C.q.trim())>=0;});
+        const tot=L.reduce((s,x)=>s+num(x.hours),0);
+        return `<h2>דוח מותאם — שעות (${L.length})</h2>
+        <div class="panel noprint" style="max-width:none">${srcRow}
+          <div class="row">
+            <label>חודש<select id="cuMonth"><option value="">הכול</option>${opts(monthsList(),C.month)}</select></label>
+            <label>לקוח<select id="cuClient"><option value="">הכול</option>${clientOpts(C.client)}</select></label>
+            <label>חיפוש<input id="cuQ" value="${esc(C.q)}" style="width:150px"></label>
+            <button class="ghost" id="cuClear">איפוס</button></div></div>
+        ${table(["תאריך","יום","לקוח","משימה","תיאור","מקום","שעות"],
+          L.map(x=>{const t=x.taskId?taskById(x.taskId):null;
+            return [heDate(x.date),DAYS[new Date(x.date).getDay()],t?tName(t):"כלליות",
+              t?`${t.year} ${t.type}`:"—",esc(x.desc||""),x.office?"משרד":"בית",f1(x.hours)];}),
+          ["סה\"כ","","","","","",f1(tot)],[0,2,6])}`;
+      }
+      if(C.src==="bills"){
+        let L=DB.bills.slice().sort((a,b)=>a.month<b.month?1:-1);
+        if(C.month) L=L.filter(b=>b.month===C.month);
+        if(C.client) L=L.filter(b=>b.clientId===C.client);
+        if(C.bill==="שולם") L=L.filter(b=>billStatus(b)==="שולם");
+        else if(C.bill==="פתוח") L=L.filter(b=>billStatus(b)!=="שולם");
+        const sum=f=>L.reduce((s,b)=>s+f(b),0);
+        return `<h2>דוח מותאם — דרישות תשלום (${L.length})</h2>
+        <div class="panel noprint" style="max-width:none">${srcRow}
+          <div class="row">
+            <label>חודש<select id="cuMonth"><option value="">הכול</option>${opts(monthsList(),C.month)}</select></label>
+            <label>לקוח<select id="cuClient"><option value="">הכול</option>${clientOpts(C.client)}</select></label>
+            <label>מצב<select id="cuBill"><option value="">הכול</option>${opts(["שולם","פתוח"],C.bill)}</select></label>
+            <button class="ghost" id="cuClear">איפוס</button></div></div>
+        ${table(["חודש","לקוח","שנה","תאריך","שכ\"ט משרד","נוסף","לפי שעות","שעות","חלקי","שולם","יתרה","מצב","הערה"],
+          L.map(b=>{const t=b.taskId?taskById(b.taskId):null;
+            return [b.month,clientName(b.clientId||(t&&t.clientId)),b.year||"",heDate(b.date),
+              f0(b.fee),f0(b.extra),f0(billRateAmount(b)),f1(billHours(b)),f0(billAmount(b)),
+              f0(billPaid(b)),f0(billDue(b)),billStatus(b),esc(b.note||"")];}),
+          ["סה\"כ","","","",f0(sum(b=>num(b.fee))),f0(sum(b=>num(b.extra))),f0(sum(billRateAmount)),
+           f1(sum(billHours)),f0(sum(billAmount)),f0(sum(billPaid)),f0(sum(billDue)),"",""],[1,8,10,11])}`;
+      }
       let list=DB.tasks.slice();
       if(C.status) list=list.filter(t=>t.submit===C.status);
       if(C.decision) list=list.filter(t=>(t.decision||"לקחתי")===C.decision);
@@ -1253,8 +1309,8 @@ function viewReports(){
         fee:t=>num(t.fee),extra:t=>num(t.extra),mine:t=>taskMine(t)};
       const foot=cols.some(k=>sumCols[k])?cols.map((k,i)=>i===0?"סה\"כ":(sumCols[k]?
         ((k==="fee"||k==="extra"||k==="mine")?f0(list.reduce((s,t)=>s+sumCols[k](t),0)):f1(list.reduce((s,t)=>s+sumCols[k](t),0))):"")):null;
-      return `<h2>דוח מותאם (${list.length})</h2>
-      <div class="panel noprint"><b>סינון</b>
+      return `<h2>דוח מותאם — משימות (${list.length})</h2>
+      <div class="panel noprint" style="max-width:none">${srcRow}<b>סינון</b>
         <div class="row">
           <label>סטטוס הגשה<select id="cuStatus"><option value="">הכול</option>${opts(SUBM,C.status)}</select></label>
           <label>החלטה<select id="cuDec"><option value="">הכול</option>${opts(DECIDE,C.decision)}</select></label>
@@ -1322,6 +1378,26 @@ function viewReports(){
           +`<div class="mute">החזר נסיעות: ${f0(s.travel)} ₪ · סה"כ לגבייה: <b>${f0(s.due)} ₪</b></div>`+monthly;
       }
       return head+monthly;
+    }
+    if(r==="below"){
+      const target=DB.settings.target;
+      const list=takenTasks().filter(t=>taskHours(t.id)>0)
+        .map(t=>{const h=taskHours(t.id), amt=taskMine(t), rate=amt/h;
+          return {t,h,amt,rate,gap:(target*h)-amt};})
+        .filter(x=>Math.round(x.rate)<target)
+        .sort((a,b)=>b.gap-a.gap);
+      const rows=list.map(x=>[tName(x.t),x.t.year,x.t.type,x.t.submit,f1(x.h),f0(x.t.fee),f0(x.amt),
+        `<span class="flag">${f0(x.rate)}</span>`,f0(target),f0(x.gap),
+        billedTask(x.t.id)?'<span class="ok">נדרש</span>':'<span class="flag">טרם נדרש</span>',
+        `<button class="mini noprint" onclick="editTask('${x.t.id}')">פתיחה</button>`]);
+      const totH=list.reduce((s,x)=>s+x.h,0), totA=list.reduce((s,x)=>s+x.amt,0);
+      return `<h2>דוח גבייה מתחת ליעד (${list.length})</h2>
+      <div class="cards">${card("משימות מתחת ליעד",list.length,"יעד "+f0(target)+" ₪ לשעה")}
+        ${card("שעות בהן",f1(totH),"")}
+        ${card("חלקי בפועל",f0(totA)+" ₪","")}
+        ${card("פער עד היעד",f0(list.reduce((s,x)=>s+x.gap,0))+" ₪","","warn")}</div>
+      ${table(["לקוח","שנה","מוצר","סטטוס","שעות בפועל","שכ\"ט משרד","חלקי","₪ לשעה","יעד","פער עד היעד","גבייה",""],
+        rows,["סה\"כ","","","",f1(totH),"",f0(totA),"","",f0(list.reduce((s,x)=>s+x.gap,0)),"",""],[0,4,7,9])}`;
     }
     if(r==="nobill"){
       const list=DB.tasks.filter(t=>t.noBill).sort((a,b)=>taskHours(b.id)-taskHours(a.id));
@@ -1399,7 +1475,7 @@ function viewReports(){
           t.noBill?'לא לגבייה':(billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>'))]));
   };
   return `<div class="row noprint">
-    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
+    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","below|מתחת ליעד","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
     <button class="ghost" id="xlsx">ייצוא לאקסל</button>
     <button class="ghost" onclick="printReport()">הדפסה</button>
@@ -1948,6 +2024,8 @@ function wire(){
   if(el("payNote")) el("payNote").onchange=e=>{S.payNote=e.target.checked;renderAll();showTab("reports");};
   const cmap={cuStatus:"status",cuDec:"decision",cuClient:"client",cuYear:"year",cuType:"type",cuBill:"bill"};
   Object.entries(cmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.cust[key]=ev.target.value;renderAll();showTab("reports");};});
+  if(el("cuSrc")) el("cuSrc").onchange=ev=>{S.cust.src=ev.target.value;renderAll();showTab("reports");};
+  if(el("cuMonth")) el("cuMonth").onchange=ev=>{S.cust.month=ev.target.value;renderAll();showTab("reports");};
   if(el("cuQ")) el("cuQ").onchange=ev=>{S.cust.q=ev.target.value;renderAll();showTab("reports");};
   if(el("cuClear")) el("cuClear").onclick=()=>{S.cust=null;renderAll();showTab("reports");};
   if(el("colOpen")) el("colOpen").onchange=e=>{S.colOpen=e.target.checked;renderAll();showTab("reports");};
@@ -2045,7 +2123,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.52.0";
+const VER="3.54.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
