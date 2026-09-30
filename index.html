@@ -339,6 +339,14 @@ function monthsList(){
   if(!s.size) s.add(iso(today()).slice(0,7));
   return [...s].sort();
 }
+function timerElapsedMs(){
+  const t=DB.timer; if(!t) return 0;
+  return num(t.accumMs)+(t.running&&t.startedAt?(Date.now()-t.startedAt):0);
+}
+function fmtDur(ms){const s2=Math.max(0,Math.floor(ms/1000));
+  const h=Math.floor(s2/3600), m=Math.floor((s2%3600)/60), sec=s2%60;
+  return pad2(h)+":"+pad2(m)+":"+pad2(sec);}
+function timerHours(){return Math.round(timerElapsedMs()/36000)/100;}
 function defaultMonth(){
   const ms=monthsList(), cur=iso(today()).slice(0,7);
   if(ms.includes(cur)) return cur;
@@ -1059,7 +1067,26 @@ function viewTime(){
   const m=S.timeMonth||defaultMonth();
   const list=DB.time.filter(x=>monthOf(x.date)===m).sort((a,b)=>a.date<b.date?1:-1);
   const tot=list.reduce((s,x)=>s+num(x.hours),0);
-  return `${printBtn()}${printHead("יומן שעות")}<h2>יומן שעות</h2>
+  const tm=DB.timer;
+  const tmTask=tm&&tm.taskId?taskById(tm.taskId):null;
+  const tasksForTimer=takenTasks().filter(isOpen)
+    .sort((a,b)=>tName(a).localeCompare(tName(b),"he"));
+  const timerBox=`<div class="panel noprint" style="max-width:none">
+    <div class="row" style="margin:0">
+      <b>טיימר עבודה</b>
+      ${tm?`<span style="font-size:20px;font-weight:800;color:${tm.running?"var(--accent-d)":"var(--ink-2)"}"
+          id="timerVal">${fmtDur(timerElapsedMs())}</span>
+        <span class="mute">${esc(tmTask?taskLabel(tmTask):"")} ${tm.running?"· פועל":"· מושהה"}</span>
+        ${tm.running?`<button class="ghost" id="tmPause">⏸ השהייה</button>`
+                    :`<button class="act" id="tmResume">▶ המשך</button>`}
+        <button class="act" id="tmDone">✔ סיימתי</button>
+        <button class="ghost danger" id="tmCancel">ביטול</button>`
+      :`<select id="tmTask" style="min-width:230px"><option value="">בחרי משימה להתחלה…</option>
+          ${opts(tasksForTimer.map(t=>({v:t.id,t:taskLabel(t)})),"")}</select>
+        <label>מיקום<select id="tmWhere">${opts([{v:"home",t:"מהבית"},{v:"office",t:"במשרד"}],"home")}</select></label>
+        <button class="act" id="tmStart">▶ התחלה</button>`}
+    </div></div>`;
+  return `${printBtn()}${printHead("יומן שעות")}${timerBox}<h2>יומן שעות</h2>
   <div class="row noprint">
     <label>חודש <select id="tmM">${opts(monthsList(),m)}</select></label>
     <button class="act" id="tmAdd">+ רישום שעות</button>
@@ -1835,6 +1862,27 @@ function wire(){
       const want=preset.filter(dd=>monthOf(dd)===m).length, got=officeList(m).length;
       tr.days=(want===got)?"":want;});
     saveLocal();renderAll();showTab("time");toast("ימי המשרד ההיסטוריים עודכנו");};
+  if(el("tmStart")) el("tmStart").onclick=()=>{
+    const id=$("#tmTask").value; if(!id){toast("צריך לבחור משימה");return;}
+    DB.timer={taskId:id,startedAt:Date.now(),accumMs:0,running:true,office:$("#tmWhere").value==="office"};
+    saveLocal();renderAll();showTab("time");toast("הטיימר פועל");};
+  if(el("tmPause")) el("tmPause").onclick=()=>{
+    DB.timer.accumMs=timerElapsedMs(); DB.timer.running=false; DB.timer.startedAt=null;
+    saveLocal();renderAll();showTab("time");};
+  if(el("tmResume")) el("tmResume").onclick=()=>{
+    DB.timer.startedAt=Date.now(); DB.timer.running=true;
+    saveLocal();renderAll();showTab("time");};
+  if(el("tmCancel")) el("tmCancel").onclick=()=>{
+    if(!confirm("לבטל את הטיימר בלי לשמור שעות?"))return;
+    DB.timer=null; saveLocal();renderAll();showTab("time");};
+  if(el("tmDone")) el("tmDone").onclick=()=>{
+    const t=DB.timer; if(!t) return;
+    const hrs=Math.max(0.01,timerHours()); const tk=taskById(t.taskId);
+    const draft={id:"",taskId:t.taskId,date:iso(today()),hours:hrs,desc:"",office:!!t.office};
+    DB.timer=null; saveLocal(); S.timeMonth=monthOf(draft.date); renderAll(); showTab("time");
+    const box=$("#timeForm"); box.innerHTML=timeForm(draft); wireTimeForm(null);
+    box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});
+    toast("נרשמו "+f1(hrs)+" שעות ל"+(tk?tName(tk):"")+" — אפשר להשלים תיאור ולשמור");};
   if(el("tmM")) el("tmM").onchange=e=>{S.timeMonth=e.target.value;renderAll();};
   if(el("tmAdd")) el("tmAdd").onclick=()=>{const box=$("#timeForm");box.innerHTML=timeForm(null);wireTimeForm(null);};
   if(el("bM")) el("bM").onchange=e=>{S.billMonth=e.target.value;renderAll();};
@@ -1983,13 +2031,21 @@ function wire(){
     }catch(e){msg.innerHTML='<span class="flag">'+esc(e.message||"שגיאה")+"</span>";}
   };
 }
+let tickTimer=null;
+function startTick(){
+  if(tickTimer) clearInterval(tickTimer);
+  tickTimer=setInterval(()=>{
+    const el2=document.getElementById("timerVal");
+    if(el2&&DB.timer&&DB.timer.running) el2.textContent=fmtDur(timerElapsedMs());
+  },1000);
+}
 function setHdr(){
   const st=dState();
   const sync=st.synced?("מסונכרן "+new Date(st.synced).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})):"לא מסונכרן";
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.51.0";
+const VER="3.52.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -2002,7 +2058,7 @@ function renderAllInner(){
   $("#s-reports").innerHTML=viewReports();
   $("#s-clients").innerHTML=viewClients();
   $("#s-data").innerHTML=viewData();
-  wire(); setHdr(); showTab(S.tab);
+  wire(); setHdr(); startTick(); showTab(S.tab);
 }
 function showTab(n,fromPop){
   const changed=S.tab!==n;
