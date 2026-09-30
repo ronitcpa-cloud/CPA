@@ -275,6 +275,8 @@ const clientName=id=>{const c=DB.clients.find(c=>c.id===id);return c?c.name:"—
 const taskById=id=>DB.tasks.find(t=>t.id===id);
 const taskHours=id=>DB.time.filter(x=>x.taskId===id).reduce((s,x)=>s+num(x.hours),0);
 const taskMine=t=>num(t.fee)*DB.settings.share+num(t.extra);
+const taskBilled=id=>DB.bills.filter(b=>b.taskId===id).reduce((s,b)=>s+billAmount(b),0);
+const mineEff=t=>{const b=taskBilled(t.id); return b>0?b:taskMine(t);};
 const taskRemaining=t=>Math.max(0,num(t.est)-taskHours(t.id));
 const tName=t=>t&&(t.clientId?clientName(t.clientId):(t.prospect||"— ללא לקוח —"));
 const taskLabel=t=>`${tName(t)} · ${t.year||""} · ${t.type||""}`;
@@ -885,7 +887,7 @@ function viewStatus(){
 `;
 }
 function taskRow(t){
-  const act=taskHours(t.id), mine=taskMine(t);
+  const act=taskHours(t.id), mine=mineEff(t);
   const est=num(t.est)>0?num(t.est):act;
   const re=est>0?mine/est:0;
   return [`<input type="radio" name="tsel" ${S.selTask===t.id?"checked":""} onclick="selTask('${t.id}')">`,
@@ -969,7 +971,7 @@ function taskForm(t){
     <label style="grid-column:1/-1">הערה למשימה — למה היא פתוחה ומה נותר לבצע
       <input id="fNotes" value="${esc(t.notes||"")}" placeholder="למשל: ממתינה לחומרים מהלקוח, נותר לסגור הכנסות"></label>
   </div>
-  ${t.id?(()=>{const act=taskHours(t.id), mine=taskMine(t), ent=DB.time.filter(x=>x.taskId===t.id).sort((a,b)=>a.date<b.date?1:-1);
+  ${t.id?(()=>{const act=taskHours(t.id), mine=mineEff(t), ent=DB.time.filter(x=>x.taskId===t.id).sort((a,b)=>a.date<b.date?1:-1);
     const pl=plannedFor(t.id), avail=Math.max(0,Math.round((num(t.est)-act-pl)*100)/100);
     return `<div class="panel" style="margin:6px 0;padding:8px 10px">
       <b>ביצוע בפועל</b><br>
@@ -1205,13 +1207,17 @@ const CUSTOMCOLS={
   act:{t:"שעות בפועל",v:t=>f1(taskHours(t.id))},
   left:{t:"שעות שנותרו",v:t=>f1(taskRemaining(t))},
   fee:{t:"שכ\"ט משרד",v:t=>f0(t.fee)}, extra:{t:"שכ\"ט נוסף",v:t=>f0(t.extra)},
-  mine:{t:"החלק שלי",v:t=>f0(taskMine(t))},
-  rateEst:{t:"לשעה צפי",v:t=>num(t.est)>0?f0(taskMine(t)/num(t.est)):""},
-  rateAct:{t:"לשעה בפועל",v:t=>taskHours(t.id)>0?f0(taskMine(t)/taskHours(t.id)):""},
+  mine:{t:"החלק שלי",v:t=>f0(mineEff(t))},
+  rateEst:{t:"לשעה צפי",v:t=>num(t.est)>0?f0(mineEff(t)/num(t.est)):""},
+  rateAct:{t:"לשעה בפועל",v:t=>taskHours(t.id)>0?f0(mineEff(t)/taskHours(t.id)):""},
   bill:{t:"דרישת תשלום",v:t=>t.noBill?"לא לגבייה":(billedTask(t.id)?"נדרש":"טרם נדרש")},
   note:{t:"הערה",v:t=>`<span class="note" title="${esc(t.notes||"")}">${esc(t.notes||"")}</span>`},
   checkNote:{t:"סיבת החלטה",v:t=>esc(t.checkNote||"")},
-  fileNo:{t:"מספר תיק",v:t=>{const c=DB.clients.find(c=>c.id===t.clientId);return c?esc(c.fileNo||""):"";}}
+  fileNo:{t:"מספר תיק",v:t=>{const c=DB.clients.find(c=>c.id===t.clientId);return c?esc(c.fileNo||""):"";}},
+  target:{t:"עמידה ביעד",v:t=>{const h=taskHours(t.id), base=h>0?h:num(t.est);
+    if(!base) return "";
+    const r=mineEff(t)/base;
+    return `${f0(r)} ${Math.round(r)>=DB.settings.target?'<span class="ok">מעל</span>':'<span class="flag">מתחת</span>'}`;}}
 };
 function viewReports(){
   const r=S.rep||"open";
@@ -1244,8 +1250,8 @@ function viewReports(){
           f0(list.reduce((s,t)=>s+num(t.fee),0)),f0(list.reduce((s,t)=>s+taskMine(t),0)),"","",""],[0,5,7,8,9]);
     }
     if(r==="custom"){
-      S.cust=S.cust||{src:"tasks",cols:["client","year","type","submit","est","act","left","mine"],
-        status:"",decision:"",client:"",year:"",type:"",bill:"",q:"",month:""};
+      S.cust=S.cust||{src:"tasks",cols:["client","year","type","submit","est","act","left","mine","target"],
+        status:"",decision:"",client:"",year:"",type:"",bill:"",q:"",month:"",group:""};
       const C=S.cust; C.src=C.src||"tasks";
       const srcRow=`<div class="row"><label>מקור הנתונים<select id="cuSrc">
         ${opts([{v:"tasks",t:"משימות"},{v:"time",t:"שעות"},{v:"bills",t:"דרישות תשלום"}],C.src)}</select></label></div>`;
@@ -1306,7 +1312,7 @@ function viewReports(){
       const head=cols.map(k=>CUSTOMCOLS[k].t);
       const rows=list.map(t=>cols.map(k=>CUSTOMCOLS[k].v(t)));
       const sumCols={est:t=>num(t.est),act:t=>taskHours(t.id),left:t=>taskRemaining(t),
-        fee:t=>num(t.fee),extra:t=>num(t.extra),mine:t=>taskMine(t)};
+        fee:t=>num(t.fee),extra:t=>num(t.extra),mine:t=>mineEff(t)};
       const foot=cols.some(k=>sumCols[k])?cols.map((k,i)=>i===0?"סה\"כ":(sumCols[k]?
         ((k==="fee"||k==="extra"||k==="mine")?f0(list.reduce((s,t)=>s+sumCols[k](t),0)):f1(list.reduce((s,t)=>s+sumCols[k](t),0))):"")):null;
       return `<h2>דוח מותאם — משימות (${list.length})</h2>
@@ -1319,6 +1325,8 @@ function viewReports(){
           <label>מוצר<select id="cuType"><option value="">הכול</option>${opts(TYPES,C.type)}</select></label>
           <label>גבייה<select id="cuBill"><option value="">הכול</option>${opts(["נדרש","טרם נדרש","לא לגבייה"],C.bill)}</select></label>
           <label>חיפוש<input id="cuQ" value="${esc(C.q)}" style="width:150px"></label>
+          <label>סיכום לפי<select id="cuGroup">${opts([{v:"",t:"ללא"},{v:"client",t:"לקוח"},
+            {v:"type",t:"מוצר"},{v:"year",t:"שנה"}],C.group||"")}</select></label>
         </div>
         <b>עמודות</b>
         <div class="row">${Object.keys(CUSTOMCOLS).map(k=>
@@ -1326,6 +1334,23 @@ function viewReports(){
             <input type="checkbox" onchange="custCol('${k}')" ${C.cols.includes(k)?"checked":""}> ${CUSTOMCOLS[k].t}</label>`).join("")}</div>
         <div class="row"><button class="ghost" id="cuClear">איפוס</button></div>
       </div>
+      ${(()=>{ if(!C.group) return "";
+        const key=t=>C.group==="client"?tName(t):(C.group==="type"?(t.type||"—"):String(t.year||"—"));
+        const g={}; list.forEach(t=>{const k2=key(t); (g[k2]=g[k2]||[]).push(t);});
+        const rows2=Object.entries(g).sort((a,b)=>a[0].localeCompare(b[0],"he")).map(([k2,arr])=>{
+          const h=arr.reduce((s,t)=>s+taskHours(t.id),0);
+          const est=arr.reduce((s,t)=>s+num(t.est),0);
+          const mineS=arr.reduce((s,t)=>s+mineEff(t),0);
+          const base=h>0?h:est, r=base>0?mineS/base:0;
+          return [k2,arr.length,f1(est),f1(h),f0(arr.reduce((s,t)=>s+num(t.fee),0)),f0(mineS),
+            r?`${f0(r)} ${Math.round(r)>=DB.settings.target?'<span class="ok">מעל</span>':'<span class="flag">מתחת</span>'}`:""];});
+        const H=arr=>arr.reduce((s,t)=>s+taskHours(t.id),0);
+        const totH=H(list), totEst=list.reduce((s,t)=>s+num(t.est),0), totMine=list.reduce((s,t)=>s+mineEff(t),0);
+        const tb=totH>0?totH:totEst, tr2=tb>0?totMine/tb:0;
+        return `<h2>סיכום לפי ${C.group==="client"?"לקוח":(C.group==="type"?"מוצר":"שנה")}</h2>`+
+          table(["קבוצה","משימות","צפי שעות","שעות בפועל","שכ\"ט משרד","חלקי","₪ לשעה"],rows2,
+            ["סה\"כ",list.length,f1(totEst),f1(totH),f0(list.reduce((s,t)=>s+num(t.fee),0)),f0(totMine),
+             tr2?`${f0(tr2)} ${Math.round(tr2)>=DB.settings.target?'<span class="ok">מעל</span>':'<span class="flag">מתחת</span>'}`:""],[0,3,5,6]);})()}
       ${cols.length?table(head,rows,foot):'<div class="panel">צריך לבחור לפחות עמודה אחת</div>'}`;
     }
     if(r==="sched"){
@@ -1382,7 +1407,7 @@ function viewReports(){
     if(r==="below"){
       const target=DB.settings.target;
       const list=takenTasks().filter(t=>taskHours(t.id)>0)
-        .map(t=>{const h=taskHours(t.id), amt=taskMine(t), rate=amt/h;
+        .map(t=>{const h=taskHours(t.id), amt=mineEff(t), rate=amt/h;
           return {t,h,amt,rate,gap:(target*h)-amt};})
         .filter(x=>Math.round(x.rate)<target)
         .sort((a,b)=>b.gap-a.gap);
@@ -2024,6 +2049,7 @@ function wire(){
   if(el("payNote")) el("payNote").onchange=e=>{S.payNote=e.target.checked;renderAll();showTab("reports");};
   const cmap={cuStatus:"status",cuDec:"decision",cuClient:"client",cuYear:"year",cuType:"type",cuBill:"bill"};
   Object.entries(cmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.cust[key]=ev.target.value;renderAll();showTab("reports");};});
+  if(el("cuGroup")) el("cuGroup").onchange=ev=>{S.cust.group=ev.target.value;renderAll();showTab("reports");};
   if(el("cuSrc")) el("cuSrc").onchange=ev=>{S.cust.src=ev.target.value;renderAll();showTab("reports");};
   if(el("cuMonth")) el("cuMonth").onchange=ev=>{S.cust.month=ev.target.value;renderAll();showTab("reports");};
   if(el("cuQ")) el("cuQ").onchange=ev=>{S.cust.q=ev.target.value;renderAll();showTab("reports");};
@@ -2123,7 +2149,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.54.0";
+const VER="3.56.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
