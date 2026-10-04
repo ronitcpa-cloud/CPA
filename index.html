@@ -243,7 +243,7 @@ function decryptStr(blob,key){
 /* ============ data ============ */
 const LS="cpa-system-v2";
 let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],
-  settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il'},
+  settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},
   updated:null};
 const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
 const TYPES=["דוח שנתי יחיד","דוח שנתי חברה","הצהרת הון","החזר מס","טיפול שוטף","אחר"];
@@ -267,7 +267,7 @@ function migrate(){
 function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
   if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
-  DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il'},d.settings||{});
+  DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},d.settings||{});
   DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];
   (DB.officeDates||[]).forEach(d=>{DB.time.filter(x=>x.date===d).forEach(x=>{x.office=true;});});
   DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
@@ -369,7 +369,7 @@ function monthSummary(m){
 
 /* ============ google drive ============ */
 const GCLIENT="466114716813-rs3j8kcvj6ccljabgae4je8ktos0ehft.apps.googleusercontent.com";
-const GSCOPE="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly";
+const GSCOPE="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events";
 const DKEY="cpa-system-drive";
 const drive={token:null,exp:0,auto:true,silentTried:false,needsAuth:false};
 const dState=()=>{try{return JSON.parse(localStorage.getItem(DKEY)||"{}")}catch(e){return{}}};
@@ -383,12 +383,17 @@ function gAuth(cb,silent){
   if(!gReady())return;
   if(silent&&drive.silentTried){ cb&&cb(false); return; }
   if(silent) drive.silentTried=true;
+  let hint=""; try{hint=localStorage.getItem("cpa-gmail")||"";}catch(e){}
   google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
+    hint:hint||undefined, select_account:false,
     callback:r=>{
       if(r&&r.access_token){
         drive.token=r.access_token;
         drive.exp=Date.now()+((+r.expires_in||3000)*1000)-60000;
         drive.needsAuth=false;
+        (async()=>{try{const rr=await gFetch("https://www.googleapis.com/drive/v3/about?fields=user");
+          const jj=await rr.json(); if(jj&&jj.user&&jj.user.emailAddress)
+            localStorage.setItem("cpa-gmail",jj.user.emailAddress);}catch(e){}})();
         const sc=r.scope||"";
         if(sc&&sc.indexOf("drive.file")<0&&!silent){ dInfo("חסרה הרשאת כתיבה לדרייב — לאשר את שתי ההרשאות במסך של גוגל",true); }
         cb&&cb(true);
@@ -601,6 +606,42 @@ function importWorkbook(buf){
   db.settings.hoursPerDay=gv("E12")||gv("B12")||7;
   db.settings.billEmail=DB.settings.billEmail||'dekel@homek.co.il';
   return db;
+}
+
+/* ============ google calendar ============ */
+function planTitle(p){const t=taskById(p.taskId); return (t?tName(t)+" · "+(t.year||"")+" "+(t.type||""):"עבודה");}
+function planTimes(p){
+  const start=(p.start&&/^\d{2}:\d{2}$/.test(p.start))?p.start:"09:00";
+  const [hh,mm]=start.split(":").map(Number);
+  const s0=new Date(p.date+"T00:00:00"); s0.setHours(hh,mm,0,0);
+  const e0=new Date(s0.getTime()+Math.max(0.25,num(p.hours))*3600000);
+  const f=d=>d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes())+":00";
+  return {start:f(s0),end:f(e0)};
+}
+async function gcalUpsert(p){
+  if(!DB.settings.gcal) return;
+  if(!drive.token){ drive.needsAuth=true; return; }
+  const t=planTimes(p);
+  const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
+    start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
+  try{
+    const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+    const r=await gFetch(p.evId?(base+"/"+p.evId):base,
+      {method:p.evId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal();}
+  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} }
+}
+async function gcalDelete(p){
+  if(!p||!p.evId||!drive.token) return;
+  try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }
+  catch(e){}
+}
+async function gcalSyncMonth(m){
+  if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
+  if(!drive.token){ gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
+  const list=DB.plans.filter(p=>monthOf(p.date)===m);
+  for(const p of list){ await gcalUpsert(p); }
+  toast("סונכרנו "+list.length+" משבצות ליומן");
 }
 
 /* ============ save reports to a folder ============ */
@@ -1043,6 +1084,7 @@ function viewCal(){
   <div class="row noprint">
     <label>חודש <select id="calM">${opts(months,cur)}</select></label>
     <button class="ghost" id="calPrev">‹ הקודם</button><button class="ghost" id="calNext">הבא ›</button>
+    <button class="ghost" id="calGsync">📅 סנכרון ליומן גוגל</button>
   </div>
   <div class="cards">
     ${card("מתוכנן החודש",`<span style="color:#0d6cb4">${f1(planned)}</span>`,"שעות")}
@@ -1074,8 +1116,8 @@ function dayPanel(k){
       <button class="ghost" id="dOffice">${isOfficeDay(k)?"🏢 ביטול יום משרד":"🏢 סמן יום משרד"}</button>
       <span class="mute">מתוכנן ${f1(planHours(k))} · בפועל ${f1(actualOn(k))}</span>
     </div>
-    ${ps.length?table(["משימה","שעות",""],ps.map(p=>{const t=taskById(p.taskId);
-      return [t?taskLabel(t):"—",f1(p.hours),
+    ${ps.length?table(["משימה","שעה","שעות",""],ps.map(p=>{const t=taskById(p.taskId);
+      return [t?taskLabel(t):"—",esc(p.start||"09:00"),f1(p.hours),
         `<button class="mini" onclick="planDone('${p.id}')">בוצע</button>
          <button class="mini" onclick="planDel('${p.id}')">מחיקה</button>`];})):""}
     ${ts.length?`<div class="mute">שעות שנרשמו: ${ts.map(t=>{const k2=t.taskId?taskById(t.taskId):null;
@@ -1086,6 +1128,9 @@ function dayPanel(k){
       return `<div class="grid2" style="margin-top:6px">
         <label style="grid-column:1/-1">הוספת תכנון<select id="pTask">${opts(av.map(t=>({v:t.id,t:taskLabel(t)+" · נותרו לתכנון "+f1(availableFor(t))})),"")}</select></label>
         <label>שעות<input id="pHours" type="number" step="0.25" max="${availableFor(first)}" value="${f1(Math.min(2,availableFor(first)))}"></label>
+        <label>שעת התחלה<input id="pStart" type="time" value="${(()=>{const used=DB.plans.filter(p=>p.date===k)
+          .reduce((s2,p)=>s2+num(p.hours),0); const base=9*60+Math.round(used*60);
+          return pad2(Math.floor(base/60)%24)+":"+pad2(base%60);})()}"></label>
       </div>
       <div class="mute" id="pAvail">אפשר לתכנן עוד ${f1(availableFor(first))} שעות במשימה הזו</div>
       <div class="row"><button class="act" id="pAdd">הוספה ליום</button></div>`;})()}
@@ -1562,6 +1607,7 @@ function viewData(){
       <button class="ghost" id="dSaveBtn">שמירה לדרייב</button>
       <button class="ghost" id="dLoadBtn">טעינה מהדרייב</button>
       <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> סנכרון אוטומטי</label>
+      <label><input type="checkbox" id="dBoot" ${(()=>{let v=true;try{v=localStorage.getItem("cpa-bootauth")!=="0";}catch(e){}return v?"checked":"";})()}> חיבור אוטומטי בפתיחה</label>
       <button class="ghost" id="dDiag">בדיקת חיבור</button></div>
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
@@ -1605,6 +1651,7 @@ function viewData(){
     <label>שעות עבודה ביום<input id="sHpd" type="number" step="0.5" value="${DB.settings.hoursPerDay}"></label>
     <label>תעריף ברירת מחדל לק"מ<input id="sKm" type="number" step="0.1" value="${DB.settings.kmRate}"></label>
     <label>מייל לשליחת דרישות<input id="sMail" value="${esc(DB.settings.billEmail||"")}"></label>
+    <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -1738,7 +1785,9 @@ window.drill=k=>{S.drill=(S.drill===k?null:k);renderAll();showTab("status");
   const el=$("#drillBox"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
 window.pickDay=k=>{S.calDay=k;S.calMonth=monthOf(k);renderAll();showTab("cal");
   const el=$("#dayPanel"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
-window.planDel=id=>{DB.plans=DB.plans.filter(p=>p.id!==id);saveLocal();renderAll();showTab("cal");};
+window.planDel=id=>{const p=DB.plans.find(x=>x.id===id);
+  if(p&&p.evId) gcalDelete(p);
+  DB.plans=DB.plans.filter(x=>x.id!==id);saveLocal();renderAll();showTab("cal");};
 window.planDone=id=>{const p=DB.plans.find(x=>x.id===id); if(!p)return;
   const t=taskById(p.taskId);
   DB.time.push({id:uid(),taskId:p.taskId,clientId:t?t.clientId:null,date:p.date,hours:num(p.hours),
@@ -1942,6 +1991,7 @@ function wire(){
   if(el("calM")) el("calM").onchange=e=>{S.calMonth=e.target.value;S.calDay=null;renderAll();showTab("cal");};
   const shiftMonth=n=>{const cur=S.calMonth||iso(today()).slice(0,7);const[Y,M]=cur.split("-").map(Number);
     const dd=new Date(Y,M-1+n,1);S.calMonth=iso(dd).slice(0,7);S.calDay=null;renderAll();showTab("cal");};
+  if(el("calGsync")) el("calGsync").onclick=()=>gcalSyncMonth(S.calMonth||iso(today()).slice(0,7));
   if(el("calPrev")) el("calPrev").onclick=()=>shiftMonth(-1);
   if(el("calNext")) el("calNext").onclick=()=>shiftMonth(1);
   if(el("dOff")) el("dOff").onclick=()=>{const k=S.calDay;
@@ -1961,8 +2011,10 @@ function wire(){
     const av=availableFor(t);
     if(av<=0){toast("המשימה כבר מתוכננת במלוא צפי השעות");return;}
     if(h>av){h=av;toast("נותרו לתכנון "+f1(av)+" שעות — הוזן "+f1(av));}
-    DB.plans.push({id:uid(),taskId:tid,date:S.calDay,hours:h});
-    saveLocal();renderAll();showTab("cal");toast("נוסף לתכנון");};
+    const np={id:uid(),taskId:tid,date:S.calDay,hours:h,start:(($("#pStart")||{}).value||"09:00")};
+    DB.plans.push(np);
+    saveLocal();renderAll();showTab("cal");toast("נוסף לתכנון");
+    if(DB.settings.gcal) gcalUpsert(np);};
   if(el("inclGen")) el("inclGen").onchange=e=>{DB.settings.inclGeneral=e.target.checked;
     saveLocal();renderAll();showTab("status");};
   if(el("rateMode")) el("rateMode").onchange=e=>{S.rateMode=e.target.value;renderAll();showTab("status");};
@@ -2097,6 +2149,8 @@ function wire(){
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
   if(el("dAuto")) el("dAuto").onchange=e=>{drive.auto=e.target.checked;};
+  if(el("dBoot")) el("dBoot").onchange=e=>{try{localStorage.setItem("cpa-bootauth",e.target.checked?"1":"0");}catch(err){}
+    toast(e.target.checked?"יתחבר אוטומטית בפתיחה":"לא יתחבר בפתיחה — סנכרון ידני בלבד");};
   if(el("pwSet")) el("pwSet").onclick=()=>{
     const cfg=lockCfg(), msg=$("#pwMsg");
     const nw=$("#pwNew").value, nw2=$("#pwNew2").value;
@@ -2165,7 +2219,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.57.0";
+const VER="3.59.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -2196,7 +2250,8 @@ function boot(){
   if(!ok){ showLock(); return; }
   if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
   renderAll();
-  setTimeout(()=>driveSync(false),1200);
+  let bootAuth=true; try{bootAuth=localStorage.getItem("cpa-bootauth")!=="0";}catch(e){}
+  if(bootAuth) setTimeout(()=>driveSync(false),1200);
   window.addEventListener("focus",()=>{ if(drive.token&&Date.now()-lastSync>60000) driveSync(false); });
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&drive.token&&Date.now()-lastSync>60000) driveSync(false); });
   setInterval(()=>{ if(drive.token) driveSync(false); },180000);
