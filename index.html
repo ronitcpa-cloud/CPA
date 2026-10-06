@@ -243,7 +243,7 @@ function decryptStr(blob,key){
 
 /* ============ data ============ */
 const LS="cpa-system-v2";
-let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],
+let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],privDays:{},
   settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},
   updated:null};
 const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
@@ -309,12 +309,15 @@ function hebInfo(dt){
   }catch(e){out=null;}
   HEB[k]=out; return out;
 }
+const privOf=k=>(DB.privDays&&DB.privDays[k])||"";
 function dayInfo(dt){
   const d=new Date(dt), w=d.getDay(), k=iso(d);
   if(DB.offDays.includes(k)) return {off:true,label:"חופשה"};
+  if(privOf(k)==="full") return {off:true,label:"🔒 פרטי"};
   if(w===5) return {off:true,label:"שישי"};
   if(w===6) return {off:true,label:"שבת"};
   const h=hebInfo(d); if(h) return {off:true,label:h};
+  if(privOf(k)==="part") return {off:false,label:"🔒 פרטי חלקי"};
   return {off:false,label:""};
 }
 function businessDays(a,b){let n=0;const d=new Date(a);
@@ -808,6 +811,7 @@ function planTimes(p){
 }
 async function gcalUpsert(p){
   if(!DB.settings.gcal) return;
+  if(privOf(p.date)) return;
   if(!drive.token){ drive.needsAuth=true; return; }
   const t=planTimes(p);
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
@@ -819,6 +823,13 @@ async function gcalUpsert(p){
     const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal();}
   }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} }
 }
+async function privCleanup(k){
+  const ps=DB.plans.filter(p=>p.date===k&&p.evId); if(!ps.length) return;
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) privCleanup(k); },false); return; }
+  let n=0; for(const p of ps){ try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") return; }
+    delete p.evId; n++; }
+  saveLocal(); toast("הוסרו "+n+" משבצות עבודה מיומן גוגל",4000);
+}
 async function gcalDelete(p){
   if(!p||!p.evId||!drive.token) return;
   try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }
@@ -827,9 +838,9 @@ async function gcalDelete(p){
 async function gcalSyncMonth(m){
   if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
   if(!drive.token){ gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
-  const list=DB.plans.filter(p=>monthOf(p.date)===m);
+  const all=DB.plans.filter(p=>monthOf(p.date)===m), list=all.filter(p=>!privOf(p.date));
   for(const p of list){ await gcalUpsert(p); }
-  toast("סונכרנו "+list.length+" משבצות ליומן");
+  toast("סונכרנו "+list.length+" משבצות ליומן"+(all.length>list.length?" · "+(all.length-list.length)+" בימים פרטיים לא נשלחו":""));
 }
 
 /* ============ save reports to a folder ============ */
@@ -1304,6 +1315,7 @@ function viewCal(){
     <span><i style="background:#f0ebf8;border:1px solid #d9cfec"></i>חופשה</span>
     <span>🏢 יום משרד</span>
     <span><i style="background:#edf1f6;border:1px solid #cfe0f5"></i>שישי/שבת וחגים</span>
+    <span>🔒 יום פרטי (לא נשלח ליומן גוגל)</span>
   </div>
   <div class="cal" style="margin-top:4px">
     ${["א","ב","ג","ד","ה","ו","ש"].map(d=>`<div class="h">${d}</div>`).join("")}
@@ -1320,6 +1332,7 @@ function dayPanel(k){
     <div class="row">
       <button class="ghost" id="dOff">${DB.offDays.includes(k)?"ביטול סימון חופשה":"סמן כיום חופשה"}</button>
       <button class="ghost" id="dOffice">${isOfficeDay(k)?"🏢 ביטול יום משרד":"🏢 סמן יום משרד"}</button>
+      <label>🔒 יום פרטי<select id="dPriv">${opts([{v:"",t:"לא"},{v:"full",t:"מלא"},{v:"part",t:"חלקי"}],privOf(k))}</select></label>
       <span class="mute">מתוכנן ${f1(planHours(k))} · בפועל ${f1(actualOn(k))}</span>
     </div>
     ${ps.length?table(["משימה","שעה","שעות",""],ps.map(p=>{const t=taskById(p.taskId);
@@ -1334,8 +1347,10 @@ function dayPanel(k){
       return `<div class="grid2" style="margin-top:6px">
         <label style="grid-column:1/-1">הוספת תכנון<select id="pTask">${opts(av.map(t=>({v:t.id,t:taskLabel(t)+" · נותרו לתכנון "+f1(availableFor(t))})),"")}</select></label>
         <label>שעות<input id="pHours" type="number" step="0.25" max="${availableFor(first)}" value="${f1(Math.min(2,availableFor(first)))}"></label>
-        <label>שעת התחלה<input id="pStart" type="time" value="${(()=>{const used=DB.plans.filter(p=>p.date===k)
-          .reduce((s2,p)=>s2+num(p.hours),0); const base=9*60+Math.round(used*60);
+        <label>שעת התחלה<input id="pStart" type="time" value="${(()=>{const ends=DB.plans.filter(p=>p.date===k).map(p=>{
+            const st=(p.start&&/^\d{2}:\d{2}$/.test(p.start))?p.start:"09:00"; const [h,m]=st.split(":").map(Number);
+            return h*60+m+Math.round(num(p.hours)*60);});
+          const base=ends.length?Math.max(...ends):9*60;
           return pad2(Math.floor(base/60)%24)+":"+pad2(base%60);})()}"></label>
       </div>
       <div class="mute" id="pAvail">אפשר לתכנן עוד ${f1(availableFor(first))} שעות במשימה הזו</div>
@@ -2225,8 +2240,14 @@ function wire(){
   if(el("calPrev")) el("calPrev").onclick=()=>shiftMonth(-1);
   if(el("calNext")) el("calNext").onclick=()=>shiftMonth(1);
   if(el("dOff")) el("dOff").onclick=()=>{const k=S.calDay;
-    if(DB.offDays.includes(k)) DB.offDays=DB.offDays.filter(x=>x!==k); else DB.offDays.push(k);
+    if(DB.offDays.includes(k)) DB.offDays=DB.offDays.filter(x=>x!==k); else { DB.offDays.push(k); if(DB.privDays) delete DB.privDays[k]; }
     saveLocal();renderAll();showTab("cal");};
+  if(el("dPriv")) el("dPriv").onchange=e=>{const k=S.calDay, v=e.target.value;
+    DB.privDays=DB.privDays||{};
+    if(v){ DB.privDays[k]=v; DB.offDays=DB.offDays.filter(x=>x!==k); } else delete DB.privDays[k];
+    saveLocal();renderAll();showTab("cal");
+    toast(v?(v==="full"?"יום פרטי מלא · לא נספר בשעות הפנויות · לא נשלח ליומן גוגל":"יום פרטי חלקי · לא נשלח ליומן גוגל"):"הסימון הוסר",4000);
+    if(v) privCleanup(k);};
   if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
     const ents=DB.time.filter(x=>x.date===k);
     if(!ents.length){toast("אין רישומי שעות ביום הזה");return;}
@@ -2457,7 +2478,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.61.1";
+const VER="3.62.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
