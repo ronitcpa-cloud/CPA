@@ -446,7 +446,7 @@ function intakeType(r){ if(r.task==="הצהרת הון"||r.task==="החזר מס
 function intakeFill(t,r){ t.year=r.year||t.year||(new Date().getFullYear()-1); t.type=intakeType(r); t.fee=r.fee; t.dekelEst=r.dekelEst;
   t.sched=r.sched||t.sched||null; t.conto=r.conto; t.prevFiler=r.prevFiler;
   t.intakeClient={type:r.ctype,bk:r.bk,soft:r.soft,rep:r.rep,ref:r.ref,notes:r.cnotes};
-  if(!t.notes) t.notes=r.tnotes; }
+  t.notes=r.tnotes; }
 const intakeMarkText=t=>(t.decision==="לקחתי"?"✔ נלקח ":"✖ לא נלקח ")+new Date().toLocaleDateString("he-IL");
 function iMsg(t,bad){ const e=$("#inMsg"); if(e) e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t); if(t) toast(t); }
 async function sFetch(url,opt){
@@ -485,13 +485,82 @@ async function intakeCreate(){
     saveLocal(); renderAll(); showTab("data"); iMsg("הגיליון נוצר ✓ — לשתף אותו עם המשרד מתוך גוגל שיטס");
   }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakeCreate(); },false); return; } iMsg("יצירת הגיליון נכשלה: "+e.message,true); }
 }
-async function intakePull(){
-  const id=DB.settings.intakeId; if(!id){ toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
-  if(needToken(intakePull)) return;
-  try{ iMsg("מושך מהגיליון…");
-    const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A2:Q")+"?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER");
-    const rows=((await r.json()).values)||[];
+let intakeBusy=false, intakeLast=0;
+function intakeAuto(){ if(!DB.settings.intakeId||intakeBusy) return;
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return;
+  if(Date.now()-intakeLast<5*60*1000) return;
+  intakePull(true); }
+
+/* ---- Claude inbox: CSV command files in Drive named claude-intake* ---- */
+function parseCSV(txt){ txt=String(txt||"").replace(/^\uFEFF/,""); const out=[]; let row=[],f="",q=false;
+  for(let i=0;i<txt.length;i++){ const ch=txt[i];
+    if(q){ if(ch==='"'){ if(txt[i+1]==='"'){f+='"';i++;} else q=false; } else f+=ch; }
+    else if(ch==='"') q=true; else if(ch===','){row.push(f);f="";}
+    else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&txt[i+1]==='\n') i++; row.push(f); out.push(row); row=[]; f=""; }
+    else f+=ch; }
+  if(f!==""||row.length){ row.push(f); out.push(row); }
+  return out.filter(r=>r.some(x=>String(x).trim()!=="")); }
+const CLEAR="(ריק)";
+function taskDeletable(t){ return !DB.time.some(x=>x.taskId===t.id)&&!DB.bills.some(b=>b.taskId===t.id)&&!DB.plans.some(p=>p.taskId===t.id); }
+async function inboxProcess(id,rows){
+  DB.settings.inboxDone=DB.settings.inboxDone||[];
+  const q=encodeURIComponent("name contains 'claude-intake' and trashed=false");
+  const lr=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&orderBy=createdTime&pageSize=50&fields=files(id,name,createdTime)");
+  const files=(((await lr.json()).files)||[]).filter(f=>DB.settings.inboxDone.indexOf(f.id)<0);
+  const res={files:0,add:0,upd:0,del:0,warn:[]}; if(!files.length) return res;
+  const keyRow=k=>rows.findIndex(r=>String(r[16]==null?"":r[16]).trim()===k);
+  const appends=[], cells=[], dels=[], appUpd=[];
+  for(const f of files){
+    const fr=await gFetch("https://www.googleapis.com/drive/v3/files/"+f.id+"?alt=media");
+    const recs=parseCSV(await fr.text());
+    recs.forEach(r=>{ const act=String(r[0]||"").trim(); if(act==="פעולה"||!act) return;
+      const key=String(r[1]||"").trim(), vals=r.slice(2,17); while(vals.length<15) vals.push("");
+      if(act==="הוספה"){ if(!String(vals[0]).trim()){res.warn.push("שורת הוספה בלי שם לקוח");return;}
+        appends.push(vals.map(v=>v===CLEAR?"":v)); res.add++; return; }
+      const i=key?keyRow(key):-1;
+      if(i<0){ res.warn.push(act+": לא נמצאה שורה עם הקוד "+key); return; }
+      if(act==="עדכון"){ vals.forEach((v,c)=>{ if(String(v)==="") return;
+          cells.push({range:IRNG+"!"+String.fromCharCode(65+c)+(i+2),values:[[v===CLEAR?"":v]]}); });
+        appUpd.push({key,vals}); res.upd++; }
+      else if(act==="מחיקה"){ if(dels.indexOf(i)<0) dels.push(i); res.del++;
+        const t=taskById(key);
+        if(t){ if(t.decision==="בבדיקה"||taskDeletable(t)){ DB.tasks=DB.tasks.filter(x=>x.id!==t.id); }
+          else res.warn.push(tName(t)+" "+(t.year||"")+": נמחק מהגיליון, נשאר באפליקציה כי יש לו שעות או דרישת תשלום"); } }
+      else res.warn.push("פעולה לא מוכרת: "+act); });
+    res.files++; }
+  const H={"Content-Type":"application/json"};
+  if(cells.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:H,body:JSON.stringify({valueInputOption:"USER_ENTERED",data:cells})});
+  if(dels.length) await sFetch(SHEETS+id+":batchUpdate",{method:"POST",headers:H,body:JSON.stringify({requests:
+    dels.sort((a,b)=>b-a).map(i=>({deleteDimension:{range:{sheetId:0,dimension:"ROWS",startIndex:i+1,endIndex:i+2}}}))})});
+  if(appends.length) await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A:O")+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+    {method:"POST",headers:H,body:JSON.stringify({values:appends})});
+  appUpd.forEach(u=>{ const t=taskById(u.key); if(!t||t.decision==="בבדיקה") return;
+    const v=c=>u.vals[c]===CLEAR?"":u.vals[c], has=c=>String(u.vals[c])!=="";
+    if(has(3)) t.year=numv(v(3))||t.year; if(has(4)) t.fee=numv(v(4)); if(has(5)) t.dekelEst=numv(v(5));
+    if(has(8)) t.conto=v(8); if(has(9)) t.prevFiler=v(9); if(has(12)) t.sched=dateFrom(v(12))||null; if(has(14)) t.notes=v(14);
+    if(has(2)||has(1)){ const c0=clientOf(t); t.type=intakeType({task:has(2)?v(2):(t.type==="הצהרת הון"?"הצהרת הון":"דוח שנתי"),ctype:has(1)?mapCType(v(1)):(c0.type||"")}); }
+    const c=t.clientId?DB.clients.find(x=>x.id===t.clientId):null;
+    if(c){ if(has(1)) c.type=mapCType(v(1)); if(has(6)) c.bk=v(6); if(has(7)) c.soft=v(7); if(has(10)) c.rep=v(10); if(has(11)) c.ref=v(11);
+      if(has(13)) c.notes=v(13); } });
+  files.forEach(f=>DB.settings.inboxDone.push(f.id));
+  return res; }
+async function intakePull(silent){
+  silent=silent===true;
+  const id=DB.settings.intakeId; if(!id){ if(!silent) toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
+  if(intakeBusy) return;
+  if(silent){ if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return; }
+  else if(needToken(intakePull)) return;
+  intakeBusy=true; intakeLast=Date.now();
+  try{ if(!silent) iMsg("מושך מהגיליון…");
+    const readRows=async()=>{ const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A2:Q")+"?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER");
+      return ((await r.json()).values)||[]; };
+    let rows=await readRows();
+    const ib=await inboxProcess(id,rows);
+    if(ib.files) rows=await readRows();
     const upd=[], fresh=[], marked=[]; let refreshed=0;
+    const keys=new Set(rows.map(r=>String(r[16]==null?"":r[16]).trim()).filter(Boolean));
+    const gone=DB.tasks.filter(t=>t.src==="sheet"&&t.decision==="בבדיקה"&&t.sheetKey&&!keys.has(t.sheetKey));
+    if(gone.length) DB.tasks=DB.tasks.filter(t=>gone.indexOf(t)<0);
     rows.forEach((row,i)=>{ const rec=intakeRec(row); if(!rec.name) return;
       const key=row[16]==null?"":String(row[16]).trim(), rn=i+2;
       if(!key){ const c=findClient(rec.name);
@@ -506,9 +575,13 @@ async function intakePull(){
       body:JSON.stringify({valueInputOption:"RAW",data:upd})});
     fresh.forEach(t=>{ DB.tasks.push(t); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); });
     marked.forEach(t=>{ delete t.sheetMark; });
-    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks");
-    iMsg(`נקלטו ${fresh.length} משימות חדשות`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(marked.length?` · ${marked.length} אישורים נכתבו לגיליון`:""));
-  }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakePull(); },false); return; } iMsg("המשיכה נכשלה: "+e.message,true); }
+    let msg=`נקלטו ${fresh.length} משימות חדשות מהורוביץ`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(gone.length?` · הוסרו ${gone.length} ממתינות שנמחקו מהגיליון`:"")+(marked.length?` · ${marked.length} אישורים נכתבו לגיליון`:"");
+    if(ib.files) msg=`עדכונים מ־Claude: ${ib.add} הוספות, ${ib.upd} עדכונים, ${ib.del} מחיקות · `+msg+(ib.warn.length?" · שימי לב: "+ib.warn.join(" | "):"");
+    intakeBusy=false;
+    if(silent){ if(fresh.length||refreshed||marked.length||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg); } return; }
+    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks"); iMsg(msg);
+  }catch(e){ intakeBusy=false; if(silent) return;
+    if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakePull(); },false); return; } iMsg("המשיכה נכשלה: "+e.message,true); }
 }
 async function intakeFlush(){
   const id=DB.settings.intakeId; const list=DB.tasks.filter(t=>t.sheetMark);
@@ -585,6 +658,7 @@ async function driveSync(manual){
   }
   if(manual) dInfo("סונכרן ✓");
   syncBusy=false;
+  intakeAuto();
 }
 async function driveLoad(){
   try{
@@ -2382,7 +2456,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.60.2";
+const VER="3.61.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
