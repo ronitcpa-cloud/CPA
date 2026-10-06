@@ -219,7 +219,8 @@ const iso=d=>{ if(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}/.test(d)) return d.sl
 const heDate=d=>d?new Date(d).toLocaleDateString("he-IL"):"";
 const monthOf=d=>d?String(d).slice(0,7):"";
 const num=v=>typeof v==="number"?v:(v==null||v===""||isNaN(parseFloat(v))?0:parseFloat(v));
-function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2200);}
+let toastT=null;
+function toast(t,ms){const e=$("#toast");e.textContent=t;e.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove("show"),ms||2200);}
 
 /* ============ lock ============ */
 const LKEY="cpa-lock";
@@ -448,7 +449,7 @@ function intakeFill(t,r){ t.year=r.year||t.year||(new Date().getFullYear()-1); t
   t.intakeClient={type:r.ctype,bk:r.bk,soft:r.soft,rep:r.rep,ref:r.ref,notes:r.cnotes};
   t.notes=r.tnotes; }
 const intakeMarkText=t=>(t.decision==="לקחתי"?"✔ נלקח ":"✖ לא נלקח ")+new Date().toLocaleDateString("he-IL");
-function iMsg(t,bad){ const e=$("#inMsg"); if(e) e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t); if(t) toast(t); }
+function iMsg(t,bad){ const e=$("#inMsg"); if(e) e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t); if(t) toast(t,t.length>40?7000:3000); }
 async function sFetch(url,opt){
   if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; throw new Error("auth"); }
   const o=opt||{}; o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
@@ -547,7 +548,7 @@ async function inboxProcess(id,rows){
 async function intakePull(silent){
   silent=silent===true;
   const id=DB.settings.intakeId; if(!id){ if(!silent) toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
-  if(intakeBusy) return;
+  if(intakeBusy){ if(!silent) toast("משיכה כבר רצה ברקע, עוד רגע יופיע הסיכום",3000); return; }
   if(silent){ if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return; }
   else if(needToken(intakePull)) return;
   intakeBusy=true; intakeLast=Date.now();
@@ -578,7 +579,7 @@ async function intakePull(silent){
     let msg=`נקלטו ${fresh.length} משימות חדשות מהורוביץ`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(gone.length?` · הוסרו ${gone.length} ממתינות שנמחקו מהגיליון`:"")+(marked.length?` · ${marked.length} אישורים נכתבו לגיליון`:"");
     if(ib.files) msg=`עדכונים מ־Claude: ${ib.add} הוספות, ${ib.upd} עדכונים, ${ib.del} מחיקות · `+msg+(ib.warn.length?" · שימי לב: "+ib.warn.join(" | "):"");
     intakeBusy=false;
-    if(silent){ if(fresh.length||refreshed||marked.length||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg); } return; }
+    if(silent){ if(fresh.length||refreshed||marked.length||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg,8000); } return; }
     saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks"); iMsg(msg);
   }catch(e){ intakeBusy=false; if(silent) return;
     if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakePull(); },false); return; } iMsg("המשיכה נכשלה: "+e.message,true); }
@@ -2456,7 +2457,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.61.0";
+const VER="3.61.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
