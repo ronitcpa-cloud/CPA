@@ -412,6 +412,119 @@ async function gFetch(url,opt){
   if(!r.ok) throw new Error("שגיאת דרייב "+r.status);
   return r;
 }
+
+/* ============ intake sheet (Dekel) ============ */
+const SHEETS="https://sheets.googleapis.com/v4/spreadsheets/";
+const IRNG="'קליטה'";
+const IHEAD=["שם לקוח","סוג לקוח","משימה","שנה","שכ\"ט משרד","צפי שעות דקל","מנהל/ת חשבונות","תוכנה","קונטו שנה קודמת","מי הגיש שנה קודמת","מייצג","הפניה","לו\"ז לסיום","הערות קבועות ללקוח","הערות לעבודה הזו","אישור רונית","קוד"];
+const ILIST={1:["עצמאי מורשה","עצמאי פטור","חברה","שכיר","עמותה"],2:["דוח שנתי","הצהרת הון","החזר מס","אחר"],
+  7:["חשבשבת","ריווחית","פריוריטי","אחר"],8:["יש","אין"],9:["אנחנו","רו\"ח אחר","חדש – אין דוח קודם"],
+  10:["הורוביץ","קפילוטו","דקל"],11:["דקל","ליבנת","תמר","גיא","עדן"]};
+const REPS=ILIST[10], REFS=ILIST[11], PREVS=ILIST[9];
+const normName=s=>String(s||"").replace(/[\s"'״׳`.,\-–]/g,"").toLowerCase();
+const findClient=n=>{const k=normName(n); return k?DB.clients.find(c=>normName(c.name)===k):null;};
+const clientOf=t=>(t&&t.clientId?DB.clients.find(c=>c.id===t.clientId):null)||(t&&t.intakeClient)||{};
+function mergeClient(c,ic){ if(!c||!ic) return;
+  ["type","bk","soft","rep","ref"].forEach(k=>{ if(!c[k]&&ic[k]) c[k]=ic[k]; });
+  if(ic.notes&&(c.notes||"").indexOf(ic.notes)<0) c.notes=c.notes?c.notes+"\n"+ic.notes:ic.notes; }
+function newClientFrom(name,t){ const ic=(t&&t.intakeClient)||{}; const ex=findClient(name);
+  if(ex){ mergeClient(ex,ic); return ex; }
+  const c={id:uid(),name:name,type:ic.type||"",fileNo:"",bk:ic.bk||"",soft:ic.soft||"",rep:ic.rep||"",ref:ic.ref||"",notes:ic.notes||""};
+  DB.clients.push(c); return c; }
+const numv=v=>typeof v==="number"?v:(+String(v==null?"":v).replace(/[^\d.]/g,"")||0);
+function dateFrom(v){ if(typeof v==="number"&&v>0) return new Date(Date.UTC(1899,11,30)+Math.round(v)*864e5).toISOString().slice(0,10);
+  const m=String(v||"").trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+  if(m){ const y=m[3].length===2?"20"+m[3]:m[3]; return y+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"); }
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(v||""))?String(v):""; }
+function mapCType(s){ s=String(s||"").trim(); if(!s) return "";
+  if(s.indexOf("פטור")>=0) return "עצמאי — פטור"; if(s.indexOf("עצמאי")>=0) return "עצמאי — מורשה"; return s; }
+function intakeRec(row){ const s=k=>row[k]==null?"":String(row[k]).trim();
+  return {name:s(0),ctype:mapCType(s(1)),task:s(2),year:numv(row[3])||"",fee:numv(row[4]),dekelEst:numv(row[5]),
+    bk:s(6),soft:s(7),conto:s(8),prevFiler:s(9),rep:s(10),ref:s(11),sched:dateFrom(row[12]),cnotes:s(13),tnotes:s(14)}; }
+function intakeType(r){ if(r.task==="הצהרת הון"||r.task==="החזר מס"||r.task==="אחר") return r.task;
+  return r.ctype==="חברה"?"דוח שנתי חברה":"דוח שנתי יחיד"; }
+function intakeFill(t,r){ t.year=r.year||t.year||(new Date().getFullYear()-1); t.type=intakeType(r); t.fee=r.fee; t.dekelEst=r.dekelEst;
+  t.sched=r.sched||t.sched||null; t.conto=r.conto; t.prevFiler=r.prevFiler;
+  t.intakeClient={type:r.ctype,bk:r.bk,soft:r.soft,rep:r.rep,ref:r.ref,notes:r.cnotes};
+  if(!t.notes) t.notes=r.tnotes; }
+const intakeMarkText=t=>(t.decision==="לקחתי"?"✔ נלקח ":"✖ לא נלקח ")+new Date().toLocaleDateString("he-IL");
+function iMsg(t,bad){ const e=$("#inMsg"); if(e) e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t); if(t) toast(t); }
+async function sFetch(url,opt){
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; throw new Error("auth"); }
+  const o=opt||{}; o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
+  const r=await fetch(url,o);
+  if(r.status===401){ drive.token=null; throw new Error("auth"); }
+  if(!r.ok){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)||""; }catch(e){}
+    if(r.status===403&&/has not been used|is disabled|SERVICE_DISABLED/i.test(m))
+      throw new Error("צריך להפעיל את Google Sheets API בפרויקט בגוגל קלאוד (פעם אחת)");
+    if(r.status===404) throw new Error("הגיליון לא נמצא — אולי נמחק");
+    throw new Error("שגיאת גוגל שיטס "+r.status+(m?" · "+m:"")); }
+  return r; }
+function needToken(fn){ if(drive.token&&!(drive.exp&&Date.now()>drive.exp)) return false;
+  drive.token=null; gAuth(ok=>{ if(ok) fn(); },false); return true; }
+async function intakeCreate(){
+  if(DB.settings.intakeId&&!confirm("כבר קיים גיליון קליטה. ליצור גיליון חדש במקומו?")) return;
+  if(needToken(intakeCreate)) return;
+  try{ iMsg("יוצר גיליון…");
+    const r=await sFetch(SHEETS.slice(0,-1),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      properties:{title:"קליטת תיקים מדקל – רונית פינץ ערוסי"},
+      sheets:[{properties:{sheetId:0,title:"קליטה",rightToLeft:true,gridProperties:{rowCount:500,columnCount:17,frozenRowCount:1}},
+        data:[{startRow:0,startColumn:0,rowData:[{values:IHEAD.map(h=>({userEnteredValue:{stringValue:h},userEnteredFormat:{textFormat:{bold:true}}}))}]}]}]})});
+    const j=await r.json(); const id=j.spreadsheetId;
+    const rg=(c1,c2)=>({sheetId:0,startRowIndex:1,endRowIndex:500,startColumnIndex:c1,endColumnIndex:c2});
+    const req=Object.entries(ILIST).map(([c,l])=>({setDataValidation:{range:rg(+c,+c+1),rule:{
+      condition:{type:"ONE_OF_LIST",values:l.map(v=>({userEnteredValue:v}))},showCustomUi:true,strict:+c!==7}}}));
+    req.push({setDataValidation:{range:rg(12,13),rule:{condition:{type:"DATE_IS_VALID"},strict:true}}});
+    req.push({repeatCell:{range:rg(12,13),cell:{userEnteredFormat:{numberFormat:{type:"DATE",pattern:"dd/mm/yyyy"}}},fields:"userEnteredFormat.numberFormat"}});
+    [3,4,5].forEach(c=>req.push({setDataValidation:{range:rg(c,c+1),rule:{condition:{type:"NUMBER_GREATER",values:[{userEnteredValue:"0"}]},strict:true}}}));
+    req.push({autoResizeDimensions:{dimensions:{sheetId:0,dimension:"COLUMNS",startIndex:0,endIndex:16}}});
+    req.push({updateDimensionProperties:{range:{sheetId:0,dimension:"COLUMNS",startIndex:16,endIndex:17},properties:{hiddenByUser:true},fields:"hiddenByUser"}});
+    req.push({addProtectedRange:{protectedRange:{range:{sheetId:0,startColumnIndex:15,endColumnIndex:17},description:"מתמלא אוטומטית מהמערכת של רונית",warningOnly:true}}});
+    await sFetch(SHEETS+id+":batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requests:req})});
+    DB.settings.intakeId=id; DB.settings.intakeUrl=j.spreadsheetUrl||("https://docs.google.com/spreadsheets/d/"+id+"/edit");
+    saveLocal(); renderAll(); showTab("data"); iMsg("הגיליון נוצר ✓ — לשתף אותו עם דקל מתוך גוגל שיטס");
+  }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakeCreate(); },false); return; } iMsg("יצירת הגיליון נכשלה: "+e.message,true); }
+}
+async function intakePull(){
+  const id=DB.settings.intakeId; if(!id){ toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
+  if(needToken(intakePull)) return;
+  try{ iMsg("מושך מהגיליון…");
+    const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A2:Q")+"?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER");
+    const rows=((await r.json()).values)||[];
+    const upd=[], fresh=[], marked=[]; let refreshed=0;
+    rows.forEach((row,i)=>{ const rec=intakeRec(row); if(!rec.name) return;
+      const key=row[16]==null?"":String(row[16]).trim(), rn=i+2;
+      if(!key){ const c=findClient(rec.name);
+        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
+          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"sheet",checkedAt:null};
+        t.sheetKey=t.id; intakeFill(t,rec); fresh.push(t);
+        upd.push({range:IRNG+"!P"+rn+":Q"+rn,values:[["ממתין לאישור רונית",t.id]]}); return; }
+      const t=taskById(key); if(!t) return;
+      if(t.decision==="בבדיקה"){ const b=JSON.stringify(t); intakeFill(t,rec); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); if(JSON.stringify(t)!==b) refreshed++; }
+      else if(t.sheetMark){ upd.push({range:IRNG+"!P"+rn,values:[[intakeMarkText(t)]]}); marked.push(t); } });
+    if(upd.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({valueInputOption:"RAW",data:upd})});
+    fresh.forEach(t=>{ DB.tasks.push(t); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); });
+    marked.forEach(t=>{ delete t.sheetMark; });
+    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks");
+    iMsg(`נקלטו ${fresh.length} משימות חדשות`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(marked.length?` · ${marked.length} אישורים נכתבו לגיליון`:""));
+  }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakePull(); },false); return; } iMsg("המשיכה נכשלה: "+e.message,true); }
+}
+async function intakeFlush(){
+  const id=DB.settings.intakeId; const list=DB.tasks.filter(t=>t.sheetMark);
+  if(!id||!list.length||!drive.token||(drive.exp&&Date.now()>drive.exp)) return;
+  try{ const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!Q:Q"));
+    const col=((await r.json()).values)||[]; const upd=[], done=[];
+    list.forEach(t=>{ const i=col.findIndex(x=>x&&String(x[0])===t.sheetKey);
+      if(i>=0){ upd.push({range:IRNG+"!P"+(i+1),values:[[intakeMarkText(t)]]}); done.push(t); } });
+    if(upd.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({valueInputOption:"RAW",data:upd})});
+    done.forEach(t=>{ delete t.sheetMark; }); if(done.length){ saveLocal(); toast("האישור נכתב בגיליון של דקל"); }
+  }catch(e){}
+}
+function intakeAfterDecision(t,prev){ if(!t) return;
+  if(t.decision==="לקחתי"&&!t.clientId&&t.prospect&&t.prospect.trim()){ const c=newClientFrom(t.prospect.trim(),t); t.clientId=c.id; t.prospect=""; }
+  if(t.sheetKey&&prev!==t.decision&&t.decision!=="בבדיקה") t.sheetMark=true; }
 async function driveSave(silent){
   try{
     if(!drive.token){ if(silent){drive.needsAuth=true; setHdr(); return;} gAuth(()=>driveSave(false),false); return;}
@@ -965,6 +1078,8 @@ function viewTasks(){
   if(F.type) list=list.filter(t=>t.type===F.type);
   if(F.decision) list=list.filter(t=>(t.decision||"לקחתי")===F.decision);
   if(F.work) list=list.filter(t=>t.work===F.work);
+  if(F.rep) list=list.filter(t=>clientOf(t).rep===F.rep);
+  if(F.ref) list=list.filter(t=>clientOf(t).ref===F.ref);
   if(F.bill==="נדרש") list=list.filter(t=>billedTask(t.id));
   else if(F.bill==="טרם נדרש") list=list.filter(t=>!billedTask(t.id)&&!t.noBill&&taken(t));
   else if(F.bill==="לא לגבייה") list=list.filter(t=>t.noBill);
@@ -973,7 +1088,16 @@ function viewTasks(){
   list.sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
   const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
   const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
-  return `${printBtn()}${printHead("משימות")}<h2>משימות (${list.length})</h2>
+  const pend=DB.tasks.filter(t=>t.src==="sheet"&&t.decision==="בבדיקה");
+  const intake=(DB.settings.intakeId||pend.length)?`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מדקל</b>
+    ${DB.settings.intakeId?`<button class="act" id="inPull">משיכה מהגיליון</button>
+    <a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">פתיחת הגיליון</a>`:""}
+    <span class="mute">${pend.length} ממתינות לאישור שלך</span></div>
+    ${pend.length?table(["לקוח","שנה","מוצר","שכ\"ט","החלק שלך","צפי דקל","₪ לשעה לפי דקל","הפניה","מייצג","לו\"ז",""],
+      pend.map(t=>{const c=clientOf(t), m=taskMine(t), d=num(t.dekelEst);
+        return [`<a href="#" onclick="editTask('${t.id}');return false">${esc(tName(t))}</a>`,t.year,t.type,f0(t.fee),f0(m),d?f1(d):"",d?f0(m/d):"",esc(c.ref||""),esc(c.rep||""),heDate(t.sched),
+          `<button class="mini" onclick="editTask('${t.id}')">פתיחה</button>`];}),null,[0,2,4,10]):""}</div>`:"";
+  return `${printBtn()}${printHead("משימות")}<h2>משימות (${list.length})</h2>${intake}
   <div class="row noprint">
     <label>סטטוס הגשה<select id="fltStatus">${opts(["פתוחים","הכול",...SUBM],F.status)}</select></label>
     <label>לקוח<select id="fltClient"><option value="">כל הלקוחות</option>${clientOpts(F.client)}</select></label>
@@ -981,6 +1105,8 @@ function viewTasks(){
     ${sel("fltYear","שנת מס",years,F.year)}
     ${sel("fltType","מוצר",TYPES,F.type)}
     ${sel("fltWork","סטטוס עבודה",WORK,F.work)}
+    ${sel("fltRep","מייצג",REPS,F.rep)}
+    ${sel("fltRef","הפניה",REFS,F.ref)}
     ${sel("fltBill","דרישת תשלום",["נדרש","טרם נדרש","לא לגבייה"],F.bill)}
     <label>חיפוש<input id="fltQ" value="${esc(F.q)}" placeholder="שם, מוצר, הערה" style="width:150px"></label>
     <button class="ghost" id="fltClear">ניקוי</button>
@@ -1020,7 +1146,12 @@ function taskForm(t){
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">סטטוס הגשה<select id="fSub">${opts(SUBM,t.submit)}</select></label>
     <label>שכ"ט משרד<input id="fFee" type="number" value="${num(t.fee)}"></label>
     <label>תוספת נטו שלך<input id="fExtra" type="number" value="${num(t.extra)}"></label>
-    <label>צפי שעות<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
+    <label>צפי שעות שלי<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
+    <label>צפי שעות דקל<input id="fDekel" type="number" step="0.25" value="${num(t.dekelEst)||""}"></label>
+    <label>קונטו שנה קודמת<select id="fConto">${opts(["","יש","אין"],t.conto||"")}</select></label>
+    <label>מי הגיש שנה קודמת<select id="fPrev">${opts(["",...PREVS],t.prevFiler||"")}</select></label>
+    ${(()=>{const c=clientOf(t); const p=[c.bk&&"מנה\"ח: "+c.bk,c.soft&&"תוכנה: "+c.soft,c.rep&&"מייצג: "+c.rep,c.ref&&"הפניה: "+c.ref].filter(Boolean);
+      return (p.length||c.notes)?`<div class="mute" style="grid-column:1/-1">${esc(p.join(" · "))}${c.notes?`<br>הערות לקוח: ${esc(c.notes)}`:""}</div>`:"";})()}
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
     <label style="grid-column:1/-1">הערה לבדיקת הכדאיות — למה לקחתי או לא לקחתי
       <input id="fCheckNote" value="${esc(t.checkNote||"")}" placeholder="למשל: שכ&quot;ט נמוך ביחס לשעות, או לקוח אסטרטגי"></label>
@@ -1574,12 +1705,14 @@ function viewClients(){
   const q=(S.clientQ||"").trim();
   const ft=S.clientType||"";
   let list=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he"));
-  if(q) list=list.filter(c=>((c.name||"")+" "+(c.fileNo||"")+" "+(c.notes||"")).indexOf(q)>=0);
+  if(q) list=list.filter(c=>((c.name||"")+" "+(c.fileNo||"")+" "+(c.notes||"")+" "+(c.bk||"")+" "+(c.soft||"")).indexOf(q)>=0);
   if(ft) list=list.filter(c=>(c.type||"")===ft);
+  if(S.clientRep) list=list.filter(c=>(c.rep||"")===S.clientRep);
+  if(S.clientRef) list=list.filter(c=>(c.ref||"")===S.clientRef);
   const rows=list.map(c=>{
     const ts=DB.tasks.filter(t=>t.clientId===c.id), bt=ts.filter(billable);
     const h=ts.reduce((s,t)=>s+taskHours(t.id),0), mine=bt.reduce((s,t)=>s+taskMine(t),0);
-    return [esc(c.name),esc(c.fileNo||"—"),esc(c.type||"—"),ts.length,ts.filter(isOpen).length,f1(h),
+    return [esc(c.name),esc(c.fileNo||"—"),esc(c.type||"—"),esc(c.rep||""),esc(c.ref||""),ts.length,ts.filter(isOpen).length,f1(h),
       f0(bt.reduce((s,t)=>s+num(t.fee),0)),f0(mine),h>0?f0(mine/h):"",
       `<span class="note" onclick="clientNotes('${c.id}')" title="${esc(c.notes||"לחיצה להוספת פרטים")}">${c.notes?esc(c.notes):'<span class="mute">+ פרטים</span>'}</span>`,
       `<button class="mini" onclick="clientNotes('${c.id}')">פרטים נוספים</button>
@@ -1590,6 +1723,8 @@ function viewClients(){
   <div class="row noprint">
     <label>חיפוש<input id="clQ" value="${esc(q)}" placeholder="שם, מספר תיק, פרטים" style="width:190px"></label>
     <label>סוג<select id="clFilterType"><option value="">הכול</option>${opts(["עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],ft)}</select></label>
+    <label>מייצג<select id="clFilterRep"><option value="">הכול</option>${opts(REPS,S.clientRep||"")}</select></label>
+    <label>הפניה<select id="clFilterRef"><option value="">הכול</option>${opts(REFS,S.clientRef||"")}</select></label>
     <button class="ghost" id="clClear">ניקוי</button>
   </div>
   <div class="row noprint"><input id="clNew" placeholder="שם לקוח חדש">
@@ -1597,7 +1732,7 @@ function viewClients(){
     <select id="clType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],"")}</select>
     <button class="act" id="clAdd">הוספה</button></div>
   <div id="clientForm"></div>
-  ${table(["לקוח","מספר תיק","סוג","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה","פרטים",""],rows,null,[0,2,7,9,10])}`;
+  ${table(["לקוח","מספר תיק","סוג","מייצג","הפניה","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה","פרטים",""],rows,null,[0,2,9,11,12])}`;
 }
 function viewData(){
   const st=dState();
@@ -1611,6 +1746,16 @@ function viewData(){
       <button class="ghost" id="dDiag">בדיקת חיבור</button></div>
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
+  </div>
+  <h2>גיליון קליטה מדקל</h2>
+  <div class="panel">
+    ${DB.settings.intakeId?`<div class="row"><a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">📄 פתיחת הגיליון</a>
+      <button class="act" id="inPull2">משיכה עכשיו</button>
+      <button class="ghost danger" id="inForget">ניתוק הגיליון</button></div>
+      <div class="mute">משתפים את הגיליון עם דקל מתוך גוגל שיטס (כפתור "שיתוף"), ואפשר להעביר אותו לתיקיית המשרד בדרייב — הקישור לא משתנה.</div>`
+    :`<div class="row"><button class="act" id="inCreate">יצירת גיליון קליטה</button></div>
+      <div class="mute">ייווצר בדרייב שלך גיליון עם רשימות נפתחות. דקל ממלא שורה לכל משימה, ואת מושכת אותן למערכת לאישור.</div>`}
+    <div id="inMsg" class="mute"></div>
   </div>
   <h2>ייבוא ראשוני מקובץ האקסל</h2>
   <div class="panel">
@@ -1742,6 +1887,7 @@ window.editCheck=id=>{const t=taskById(id); if(!t)return;
   $("#ckDel").onclick=()=>{ if(!confirm("למחוק את רשומת הבדיקה?"))return;
     DB.tasks=DB.tasks.filter(x=>x.id!==t.id); saveLocal(); renderAll(); showTab("reports"); toast("נמחק");};
   $("#ckSave").onclick=()=>{
+    const prevDec=t.decision;
     t.fee=+$("#ckFee").value||0; t.est=+$("#ckEst").value||0;
     t.decision=$("#ckDec").value; t.checkNote=$("#ckNote").value.trim();
     if(t.decision==="לא לקחתי"){ t.submit="בוטל"; t.noBill=true;
@@ -1749,7 +1895,8 @@ window.editCheck=id=>{const t=taskById(id); if(!t)return;
         t.checkNote=(num(t.est)>0&&Math.round(rr)<DB.settings.target)
           ?("מתחת ליעד השעתי — "+f0(rr)+" ₪ לשעה מול יעד "+f0(DB.settings.target)):"לא נלקח"; } }
     if(!t.checkedAt) t.checkedAt=iso(today());
-    saveLocal(); renderAll(); showTab("reports"); toast("הבדיקה עודכנה");};
+    intakeAfterDecision(t,prevDec);
+    saveLocal(); intakeFlush(); renderAll(); showTab("reports"); toast("הבדיקה עודכנה");};
   box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.billNoBill=id=>{const t=taskById(id); if(!t)return;
   t.noBill=false; saveLocal(); window.quickBill(id);};
@@ -1823,11 +1970,16 @@ window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
     <label>שם לקוח<input id="cName" value="${esc(c.name)}"></label>
     <label>מספר תיק<input id="cFile" value="${esc(c.fileNo||"")}"></label>
     <label>סוג<select id="cType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],c.type||"")}</select></label>
+    <label>מנהל/ת חשבונות<input id="cBk" value="${esc(c.bk||"")}"></label>
+    <label>תוכנת הנה"ח<input id="cSoft" value="${esc(c.soft||"")}"></label>
+    <label>מייצג<select id="cRep">${opts(["",...REPS],c.rep||"")}</select></label>
+    <label>הפניה<select id="cRef">${opts(["",...REFS],c.ref||"")}</select></label>
   </div><div class="row"><button class="act" id="cSave">שמירה</button>
     <button class="ghost" id="cCancel">ביטול</button></div></div>`;
   $("#cCancel").onclick=()=>{box.innerHTML="";};
   $("#cSave").onclick=()=>{c.name=$("#cName").value.trim()||c.name;c.fileNo=$("#cFile").value.trim();
-    c.type=$("#cType").value;saveLocal();renderAll();showTab("clients");toast("הלקוח עודכן");};
+    c.type=$("#cType").value;c.bk=$("#cBk").value.trim();c.soft=$("#cSoft").value.trim();
+    c.rep=$("#cRep").value;c.ref=$("#cRef").value;saveLocal();renderAll();showTab("clients");toast("הלקוח עודכן");};
   box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.S=S;
 function wireTaskForm(t){
@@ -1865,21 +2017,23 @@ function wireTaskForm(t){
     $("#fSave").click();
   };
   $("#fSave").onclick=()=>{
+    const prevDec=t&&t.id?(taskById(t.id)||t).decision:null;
     const dec=$("#fDec").value; let cid=$("#fClient").value, prospect=(t&&t.prospect)||"";
     if(cid==="__new"){
       const nm=($("#fNewClient").value||"").trim();
       if(!nm){toast("צריך שם לקוח");return;}
-      if(dec==="לקחתי"){const c={id:uid(),name:nm,type:"",fileNo:""};DB.clients.push(c);cid=c.id;prospect="";}
+      if(dec==="לקחתי"){const c=newClientFrom(nm,t);cid=c.id;prospect="";}
       else {cid="";prospect=nm;}
     } else if(cid&&prospect) prospect="";
     if(!cid&&!prospect){toast("צריך לבחור לקוח או להזין שם");return;}
-    if(!cid&&prospect&&dec==="לקחתי"){const c={id:uid(),name:prospect,type:"",fileNo:""};DB.clients.push(c);cid=c.id;prospect="";}
+    if(!cid&&prospect&&dec==="לקחתי"){const c=newClientFrom(prospect.trim(),t);cid=c.id;prospect="";}
     const checkMode=dec==="בבדיקה"||dec==="לא לקחתי"||S.fromCheck===true||(t&&t.decision==="בבדיקה");
     const o={id:(t&&t.id)||uid(),clientId:cid,prospect:prospect,year:+$("#fYear").value||"",
       checkedAt:(t&&t.checkedAt)||(checkMode?iso(today()):null),
       type:$("#fType").value,work:$("#fWork").value,submit:$("#fSub").value,decision:$("#fDec").value,noBill:$("#fNoBill").value==="no",
       fee:+$("#fFee").value||0,extra:+$("#fExtra").value||0,est:+$("#fEst").value||0,
-      checkNote:$("#fCheckNote").value,sched:$("#fSched").value||null,notes:$("#fNotes").value};
+      checkNote:$("#fCheckNote").value,sched:$("#fSched").value||null,notes:$("#fNotes").value,
+      dekelEst:+$("#fDekel").value||0,conto:$("#fConto").value,prevFiler:$("#fPrev").value};
     const isCheck=dec==="בבדיקה"||dec==="לא לקחתי";
     const dup=!isCheck&&DB.tasks.find(x=>x.id!==o.id&&x.clientId&&x.clientId===o.clientId&&
       String(x.year)===String(o.year)&&x.type===o.type&&x.decision!=="לא לקחתי"&&x.decision!=="בבדיקה");
@@ -1892,7 +2046,8 @@ function wireTaskForm(t){
     }
     const i=DB.tasks.findIndex(x=>x.id===o.id);
     if(i>=0) DB.tasks[i]=Object.assign(DB.tasks[i],o); else DB.tasks.push(o);
-    saveLocal();
+    intakeAfterDecision(taskById(o.id),prevDec);
+    saveLocal(); intakeFlush();
     if(dec==="לקחתי"&&(!t||!t.id||(t.decision==="בבדיקה"))){
       renderAll(); showTab("tasks");
       const box=$("#taskForm"); const saved=taskById(o.id);
@@ -1966,10 +2121,10 @@ function wireBillForm(b,free){
 function wire(){
   const el=id=>$("#"+id);
   const fmap={fltStatus:"status",fltClient:"client",fltDecision:"decision",fltYear:"year",
-    fltType:"type",fltWork:"work",fltBill:"bill"};
+    fltType:"type",fltWork:"work",fltBill:"bill",fltRep:"rep",fltRef:"ref"};
   Object.entries(fmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.tf[key]=ev.target.value;renderAll();showTab("tasks");};});
   if(el("fltQ")) el("fltQ").onchange=ev=>{S.tf.q=ev.target.value;renderAll();showTab("tasks");};
-  if(el("fltClear")) el("fltClear").onclick=()=>{S.tf={status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:""};renderAll();showTab("tasks");};
+  if(el("fltClear")) el("fltClear").onclick=()=>{S.tf={status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:"",rep:"",ref:""};renderAll();showTab("tasks");};
   const sel=()=>S.selTask;
   if(el("selEdit")) el("selEdit").onclick=()=>window.editTask(sel());
   if(el("selNote")) el("selNote").onclick=()=>window.editNote(sel());
@@ -2130,7 +2285,14 @@ function wire(){
   if(el("xlsxOut")) el("xlsxOut").onclick=exportXlsx;
   if(el("clQ")) el("clQ").onchange=e=>{S.clientQ=e.target.value;renderAll();showTab("clients");};
   if(el("clFilterType")) el("clFilterType").onchange=e=>{S.clientType=e.target.value;renderAll();showTab("clients");};
-  if(el("clClear")) el("clClear").onclick=()=>{S.clientQ="";S.clientType="";renderAll();showTab("clients");};
+  if(el("clFilterRep")) el("clFilterRep").onchange=e=>{S.clientRep=e.target.value;renderAll();showTab("clients");};
+  if(el("clFilterRef")) el("clFilterRef").onchange=e=>{S.clientRef=e.target.value;renderAll();showTab("clients");};
+  if(el("clClear")) el("clClear").onclick=()=>{S.clientQ="";S.clientType="";S.clientRep="";S.clientRef="";renderAll();showTab("clients");};
+  if(el("inPull")) el("inPull").onclick=()=>intakePull();
+  if(el("inPull2")) el("inPull2").onclick=()=>intakePull();
+  if(el("inCreate")) el("inCreate").onclick=()=>intakeCreate();
+  if(el("inForget")) el("inForget").onclick=()=>{ if(!confirm("לנתק את הגיליון מהמערכת? הגיליון עצמו לא יימחק."))return;
+    delete DB.settings.intakeId; delete DB.settings.intakeUrl; saveLocal(); renderAll(); showTab("data"); toast("הגיליון נותק");};
   if(el("clAdd")) el("clAdd").onclick=()=>{const n=$("#clNew").value.trim();if(!n)return;
     DB.clients.push({id:uid(),name:n,type:($("#clType")||{}).value||"",fileNo:$("#clNum").value.trim()});
     saveLocal();renderAll();showTab("clients");toast("לקוח נוסף");};
@@ -2171,7 +2333,8 @@ function wire(){
     DB.settings.share=+$("#sShare").value||1/3;DB.settings.target=+$("#sTarget").value||200;
     DB.settings.targetNext=+$("#sNext").value||250;DB.settings.hoursPerDay=+$("#sHpd").value||7;
     DB.settings.kmRate=+$("#sKm").value||1;DB.settings.billEmail=$("#sMail").value.trim();DB.settings.inclGeneral=$("#sGen").value==="yes";
-    saveLocal();renderAll();toast("ההגדרות נשמרו");};
+    DB.settings.gcal=$("#sGcal").value==="yes";
+    saveLocal();renderAll();showTab("data");toast("ההגדרות נשמרו");};
   if(el("jsonOut")) el("jsonOut").onclick=()=>{
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
     a.download="cpa-backup-"+iso(today())+".json";a.click();};
@@ -2219,7 +2382,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.59.0";
+const VER="3.60.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
