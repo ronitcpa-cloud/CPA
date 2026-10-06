@@ -467,7 +467,7 @@ async function intakeCreate(){
   if(needToken(intakeCreate)) return;
   try{ iMsg("יוצר גיליון…");
     const r=await sFetch(SHEETS.slice(0,-1),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      properties:{title:"קליטת תיקים מדקל – רונית פינץ ערוסי"},
+      properties:{title:"קליטת תיקים מהורוביץ – רונית פינץ ערוסי"},
       sheets:[{properties:{sheetId:0,title:"קליטה",rightToLeft:true,gridProperties:{rowCount:500,columnCount:17,frozenRowCount:1}},
         data:[{startRow:0,startColumn:0,rowData:[{values:IHEAD.map(h=>({userEnteredValue:{stringValue:h},userEnteredFormat:{textFormat:{bold:true}}}))}]}]}]})});
     const j=await r.json(); const id=j.spreadsheetId;
@@ -482,7 +482,7 @@ async function intakeCreate(){
     req.push({addProtectedRange:{protectedRange:{range:{sheetId:0,startColumnIndex:15,endColumnIndex:17},description:"מתמלא אוטומטית מהמערכת של רונית",warningOnly:true}}});
     await sFetch(SHEETS+id+":batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requests:req})});
     DB.settings.intakeId=id; DB.settings.intakeUrl=j.spreadsheetUrl||("https://docs.google.com/spreadsheets/d/"+id+"/edit");
-    saveLocal(); renderAll(); showTab("data"); iMsg("הגיליון נוצר ✓ — לשתף אותו עם דקל מתוך גוגל שיטס");
+    saveLocal(); renderAll(); showTab("data"); iMsg("הגיליון נוצר ✓ — לשתף אותו עם המשרד מתוך גוגל שיטס");
   }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakeCreate(); },false); return; } iMsg("יצירת הגיליון נכשלה: "+e.message,true); }
 }
 async function intakePull(){
@@ -519,7 +519,7 @@ async function intakeFlush(){
       if(i>=0){ upd.push({range:IRNG+"!P"+(i+1),values:[[intakeMarkText(t)]]}); done.push(t); } });
     if(upd.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({valueInputOption:"RAW",data:upd})});
-    done.forEach(t=>{ delete t.sheetMark; }); if(done.length){ saveLocal(); toast("האישור נכתב בגיליון של דקל"); }
+    done.forEach(t=>{ delete t.sheetMark; }); if(done.length){ saveLocal(); toast("האישור נכתב בגיליון הורוביץ"); }
   }catch(e){}
 }
 function intakeAfterDecision(t,prev){ if(!t) return;
@@ -1089,8 +1089,8 @@ function viewTasks(){
   const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
   const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
   const pend=DB.tasks.filter(t=>t.src==="sheet"&&t.decision==="בבדיקה");
-  const intake=(DB.settings.intakeId||pend.length)?`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מדקל</b>
-    ${DB.settings.intakeId?`<button class="act" id="inPull">משיכה מהגיליון</button>
+  const intake=(DB.settings.intakeId||pend.length)?`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מהורוביץ</b>
+    ${DB.settings.intakeId?`<button class="act" id="inPull">משיכה מהורוביץ</button>
     <a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">פתיחת הגיליון</a>`:""}
     <span class="mute">${pend.length} ממתינות לאישור שלך</span></div>
     ${pend.length?table(["לקוח","שנה","מוצר","שכ\"ט","החלק שלך","צפי דקל","₪ לשעה לפי דקל","הפניה","מייצג","לו\"ז",""],
@@ -1747,14 +1747,14 @@ function viewData(){
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
   </div>
-  <h2>גיליון קליטה מדקל</h2>
+  <h2>גיליון קליטה מהורוביץ</h2>
   <div class="panel">
     ${DB.settings.intakeId?`<div class="row"><a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">📄 פתיחת הגיליון</a>
-      <button class="act" id="inPull2">משיכה עכשיו</button>
+      <button class="act" id="inPull2">משיכה מהורוביץ</button>
       <button class="ghost danger" id="inForget">ניתוק הגיליון</button></div>
-      <div class="mute">משתפים את הגיליון עם דקל מתוך גוגל שיטס (כפתור "שיתוף"), ואפשר להעביר אותו לתיקיית המשרד בדרייב — הקישור לא משתנה.</div>`
+      <div class="mute">משתפים את הגיליון עם המשרד מתוך גוגל שיטס (כפתור "שיתוף"), ואפשר להעביר אותו לתיקיית המשרד בדרייב — הקישור לא משתנה.</div>`
     :`<div class="row"><button class="act" id="inCreate">יצירת גיליון קליטה</button></div>
-      <div class="mute">ייווצר בדרייב שלך גיליון עם רשימות נפתחות. דקל ממלא שורה לכל משימה, ואת מושכת אותן למערכת לאישור.</div>`}
+      <div class="mute">ייווצר בדרייב שלך גיליון עם רשימות נפתחות. המשרד ממלא שורה לכל משימה, ואת מושכת אותן למערכת לאישור.</div>`}
     <div id="inMsg" class="mute"></div>
   </div>
   <h2>ייבוא ראשוני מקובץ האקסל</h2>
@@ -2382,7 +2382,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.60.1";
+const VER="3.60.2";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
