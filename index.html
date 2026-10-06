@@ -383,7 +383,7 @@ function gReady(){
   if(window.GSI_BLOCKED||!(window.google&&google.accounts&&google.accounts.oauth2)){
     dInfo("החיבור לדרייב עובד רק מהאתר שלך (github.io)",true);return false;}
   return true;}
-function gAuth(cb,silent){
+function gAuth(cb,silent,force){
   if(!gReady())return;
   if(silent&&drive.silentTried){ cb&&cb(false); return; }
   if(silent) drive.silentTried=true;
@@ -399,13 +399,15 @@ function gAuth(cb,silent){
           const jj=await rr.json(); if(jj&&jj.user&&jj.user.emailAddress)
             localStorage.setItem("cpa-gmail",jj.user.emailAddress);}catch(e){}})();
         const sc=r.scope||"";
-        if(sc&&sc.indexOf("drive.file")<0&&!silent){ dInfo("חסרה הרשאת כתיבה לדרייב — לאשר את שתי ההרשאות במסך של גוגל",true); }
+        const missing=sc&&(sc.indexOf("drive.file")<0||(DB.settings.gcal&&sc.indexOf("calendar")<0));
+        if(missing&&!silent&&!force){ gAuth(cb,false,true); return; }
+        if(missing&&!silent){ dInfo("חסרה הרשאה — לסמן את כל ההרשאות במסך של גוגל (דרייב ויומן)",true); }
         cb&&cb(true);
       } else { drive.needsAuth=true;
         if(!silent) dInfo("ההתחברות לא הושלמה: "+((r&&r.error)||"נסגר החלון"),true);
         cb&&cb(false); }
     }
-  }).requestAccessToken({prompt:silent?"":"consent"});
+  }).requestAccessToken({prompt:force?"consent":""});
 }
 async function gFetch(url,opt){
   if(drive.exp&&Date.now()>drive.exp){ drive.token=null; throw new Error("auth"); }
@@ -923,7 +925,7 @@ async function gcalDelete(p){
 }
 async function gcalSyncMonth(m){
   if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
-  if(!drive.token){ gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
   const all=DB.plans.filter(p=>monthOf(p.date)===m), list=all.filter(p=>!privOf(p.date));
   for(const p of list){ await gcalUpsert(p); }
   toast("סונכרנו "+list.length+" משבצות ליומן"+(all.length>list.length?" · "+(all.length-list.length)+" בימים פרטיים לא נשלחו":""));
@@ -2573,7 +2575,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.63.0";
+const VER="3.63.1";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
