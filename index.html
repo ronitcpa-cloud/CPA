@@ -490,8 +490,8 @@ async function intakeCreate(){
   }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakeCreate(); },false); return; } iMsg("יצירת הגיליון נכשלה: "+e.message,true); }
 }
 let intakeBusy=false, intakeLast=0;
-function intakeAuto(){ if(!DB.settings.intakeId||intakeBusy) return;
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return;
+function intakeAuto(){ if(intakeBusy) return;
+  if(intakeMode()==="sheet"&&(!DB.settings.intakeId||!drive.token||(drive.exp&&Date.now()>drive.exp))) return;
   if(Date.now()-intakeLast<5*60*1000) return;
   intakePull(true); }
 
@@ -505,6 +505,17 @@ function parseCSV(txt){ txt=String(txt||"").replace(/^\uFEFF/,""); const out=[];
   if(f!==""||row.length){ row.push(f); out.push(row); }
   return out.filter(r=>r.some(x=>String(x).trim()!=="")); }
 const CLEAR="(ריק)";
+function applyVals(t,vals){
+  const v=c=>vals[c]===CLEAR?"":String(vals[c]==null?"":vals[c]), has=c=>String(vals[c]==null?"":vals[c])!=="";
+  if(has(0)&&!t.clientId) t.prospect=v(0);
+  if(has(3)) t.year=numv(v(3))||t.year; if(has(4)) t.fee=numv(v(4)); if(has(5)) t.dekelEst=numv(v(5));
+  if(has(8)) t.conto=v(8); if(has(9)) t.prevFiler=v(9); if(has(12)) t.sched=dateFrom(vals[12]===CLEAR?"":vals[12])||null; if(has(14)) t.notes=v(14);
+  if(has(2)||has(1)){ const c0=clientOf(t); t.type=intakeType({task:has(2)?v(2):(t.type==="הצהרת הון"?"הצהרת הון":"דוח שנתי"),ctype:has(1)?mapCType(v(1)):(c0.type||"")}); }
+  const c=t.clientId?DB.clients.find(x=>x.id===t.clientId):null;
+  const tgt=c||(t.intakeClient=t.intakeClient||{});
+  if(has(1)) tgt.type=mapCType(v(1)); if(has(6)) tgt.bk=v(6); if(has(7)) tgt.soft=v(7); if(has(10)) tgt.rep=v(10); if(has(11)) tgt.ref=v(11);
+  if(has(13)) tgt.notes=v(13); }
+
 function taskDeletable(t){ return !DB.time.some(x=>x.taskId===t.id)&&!DB.bills.some(b=>b.taskId===t.id)&&!DB.plans.some(p=>p.taskId===t.id); }
 async function inboxProcess(id,rows){
   DB.settings.inboxDone=DB.settings.inboxDone||[];
@@ -538,22 +549,97 @@ async function inboxProcess(id,rows){
     dels.sort((a,b)=>b-a).map(i=>({deleteDimension:{range:{sheetId:0,dimension:"ROWS",startIndex:i+1,endIndex:i+2}}}))})});
   if(appends.length) await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A:O")+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
     {method:"POST",headers:H,body:JSON.stringify({values:appends})});
-  appUpd.forEach(u=>{ const t=taskById(u.key); if(!t||t.decision==="בבדיקה") return;
-    const v=c=>u.vals[c]===CLEAR?"":u.vals[c], has=c=>String(u.vals[c])!=="";
-    if(has(3)) t.year=numv(v(3))||t.year; if(has(4)) t.fee=numv(v(4)); if(has(5)) t.dekelEst=numv(v(5));
-    if(has(8)) t.conto=v(8); if(has(9)) t.prevFiler=v(9); if(has(12)) t.sched=dateFrom(v(12))||null; if(has(14)) t.notes=v(14);
-    if(has(2)||has(1)){ const c0=clientOf(t); t.type=intakeType({task:has(2)?v(2):(t.type==="הצהרת הון"?"הצהרת הון":"דוח שנתי"),ctype:has(1)?mapCType(v(1)):(c0.type||"")}); }
-    const c=t.clientId?DB.clients.find(x=>x.id===t.clientId):null;
-    if(c){ if(has(1)) c.type=mapCType(v(1)); if(has(6)) c.bk=v(6); if(has(7)) c.soft=v(7); if(has(10)) c.rep=v(10); if(has(11)) c.ref=v(11);
-      if(has(13)) c.notes=v(13); } });
+  appUpd.forEach(u=>{ const t=taskById(u.key); if(!t||t.decision==="בבדיקה") return; applyVals(t,u.vals); });
   files.forEach(f=>DB.settings.inboxDone.push(f.id));
   return res; }
+
+/* ---- Excel intake (office OneDrive file, read-only via File System Access) ---- */
+const intakeMode=()=>DB.settings.intakeMode||(DB.settings.intakeId?"sheet":"excel");
+const xlKeyOf=r=>normName(r.name)+"|"+(r.year||"")+"|"+intakeType(r);
+const findExisting=r=>DB.tasks.find(t=>normName(tName(t))===normName(r.name)&&String(t.year)===String(r.year)&&t.type===intakeType(r));
+async function xlPick(){
+  if(!window.showOpenFilePicker){ toast("בחירת קובץ אפשרית רק במחשב, בכרום או באדג׳",4000); return; }
+  try{ const [h]=await window.showOpenFilePicker({id:"cpaIntakeXl",multiple:false,
+      types:[{description:"Excel",accept:{"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":[".xlsx"]}}]});
+    await idbSet("xl",h); try{localStorage.setItem("cpa-xl-name",h.name||"");}catch(e){}
+    DB.settings.intakeMode="excel"; saveLocal(); renderAll(); showTab("data"); iMsg("הקובץ נבחר: "+h.name+" · אפשר למשוך");
+  }catch(e){ if(e&&e.name!=="AbortError") iMsg("בחירת הקובץ נכשלה: "+e.message,true); } }
+async function xlRows(silent){
+  let h=null; try{ h=await idbGet("xl"); }catch(e){}
+  if(!h) return {err:"עוד לא נבחר קובץ האקסל במחשב הזה (לשונית נתונים)"};
+  let p="prompt"; try{ p=await h.queryPermission({mode:"read"}); }catch(e){}
+  if(p!=="granted"){ if(silent) return {err:"skip"}; try{ p=await h.requestPermission({mode:"read"}); }catch(e){} }
+  if(p!=="granted") return {err:"לא אושרה גישה לקובץ האקסל"};
+  const f=await h.getFile(); const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});
+  const ws=wb.Sheets["קליטה"]||wb.Sheets[wb.SheetNames[0]];
+  const arr=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:""});
+  const hi=arr.findIndex(r=>String(r[0]||"").trim()==="שם לקוח");
+  return {rows:arr.slice(hi+1), name:f.name}; }
+async function inboxApp(){
+  DB.settings.inboxDone=DB.settings.inboxDone||[];
+  const res={files:0,add:0,upd:0,del:0,warn:[]};
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return res;
+  const q=encodeURIComponent("name contains 'claude-intake' and trashed=false");
+  const lr=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&orderBy=createdTime&pageSize=50&fields=files(id,name,createdTime)");
+  const files=(((await lr.json()).files)||[]).filter(f=>DB.settings.inboxDone.indexOf(f.id)<0);
+  for(const f of files){
+    const fr=await gFetch("https://www.googleapis.com/drive/v3/files/"+f.id+"?alt=media");
+    parseCSV(await fr.text()).forEach(r=>{ const act=String(r[0]||"").trim(); if(act==="פעולה"||!act) return;
+      const key=String(r[1]||"").trim(), vals=r.slice(2,17); while(vals.length<15) vals.push("");
+      if(act==="הוספה"){ const rec=intakeRec(vals.map(x=>x===CLEAR?"":x)); if(!rec.name){res.warn.push("הוספה בלי שם לקוח");return;}
+        const ex=findExisting(rec); if(ex){ res.warn.push(rec.name+" "+rec.year+": כבר קיימת משימה, לא נוספה"); return; }
+        const c=findClient(rec.name);
+        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
+          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"claude",checkedAt:null};
+        intakeFill(t,rec); DB.tasks.push(t); if(c) mergeClient(c,t.intakeClient); res.add++; return; }
+      const t=taskById(key); if(!t){ res.warn.push(act+": לא נמצאה משימה עם הקוד "+key); return; }
+      if(act==="עדכון"){ applyVals(t,vals); if(t.src==="excel") t.src="claude"; res.upd++; }
+      else if(act==="מחיקה"){ if(t.decision==="בבדיקה"||taskDeletable(t)){ DB.tasks=DB.tasks.filter(x=>x.id!==t.id); res.del++; }
+        else res.warn.push(tName(t)+" "+(t.year||"")+": לא נמחקה כי יש לה שעות, תכנון או דרישת תשלום"); }
+      else res.warn.push("פעולה לא מוכרת: "+act); });
+    DB.settings.inboxDone.push(f.id); res.files++; }
+  return res; }
+async function intakePullXL(silent){
+  if(intakeBusy){ if(!silent) toast("משיכה כבר רצה ברקע, עוד רגע יופיע הסיכום",3000); return; }
+  intakeBusy=true; intakeLast=Date.now();
+  try{ if(!silent) iMsg("מושך מקובץ האקסל…");
+    let ib={files:0,add:0,upd:0,del:0,warn:[]};
+    try{ ib=await inboxApp(); }catch(e){ if(!silent) ib.warn.push("קובצי הפקודות לא נקראו: "+e.message); }
+    const xr=await xlRows(silent);
+    let fresh=0, refreshed=0, linked=0, gone=[];
+    if(xr.rows){ DB.settings.xlSeen=DB.settings.xlSeen||{}; const seen=DB.settings.xlSeen, inFile=new Set();
+      xr.rows.forEach(row=>{ const rec=intakeRec(row); if(!rec.name) return; const k=xlKeyOf(rec);
+        if(inFile.has(k)) return; inFile.add(k);
+        if(seen[k]){ const t=taskById(seen[k]);
+          if(t&&t.decision==="בבדיקה"&&t.src==="excel"){ const b=JSON.stringify(t); intakeFill(t,rec); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); if(JSON.stringify(t)!==b) refreshed++; }
+          return; }
+        const ex=findExisting(rec);
+        if(ex){ seen[k]=ex.id; linked++;
+          if(ex.decision==="בבדיקה"){ ex.src="excel"; ex.xlKey=k; delete ex.sheetKey; intakeFill(ex,rec); }
+          return; }
+        const c=findClient(rec.name);
+        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
+          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"excel",xlKey:k,checkedAt:null};
+        intakeFill(t,rec); DB.tasks.push(t); if(c) mergeClient(c,t.intakeClient); seen[k]=t.id; fresh++; });
+      gone=DB.tasks.filter(t=>t.src==="excel"&&t.decision==="בבדיקה"&&t.xlKey&&!inFile.has(t.xlKey));
+      if(gone.length){ DB.tasks=DB.tasks.filter(t=>gone.indexOf(t)<0); gone.forEach(t=>{ delete seen[t.xlKey]; }); } }
+    let msg=xr.rows?(`נקלטו ${fresh} משימות חדשות מהורוביץ`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(linked?` · ${linked} שורות זוהו כמשימות קיימות`:"")+(gone.length?` · הוסרו ${gone.length} ממתינות שנמחקו מהקובץ`:""))
+      :(xr.err==="skip"?"":xr.err);
+    if(ib.files) msg=`עדכונים מ־Claude: ${ib.add} הוספות, ${ib.upd} עדכונים, ${ib.del} מחיקות`+(msg?" · "+msg:"");
+    if(ib.warn.length) msg+=" · שימי לב: "+ib.warn.join(" | ");
+    intakeBusy=false;
+    if(silent){ if(fresh||refreshed||linked||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg,8000); } return; }
+    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks"); iMsg(msg,!xr.rows&&!ib.files);
+  }catch(e){ intakeBusy=false; if(!silent) iMsg("המשיכה נכשלה: "+e.message,true); } }
 async function intakePull(silent){
+  if(intakeMode()==="excel") return intakePullXL(silent===true);
+  return intakePullSheet(silent); }
+async function intakePullSheet(silent){
   silent=silent===true;
   const id=DB.settings.intakeId; if(!id){ if(!silent) toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
   if(intakeBusy){ if(!silent) toast("משיכה כבר רצה ברקע, עוד רגע יופיע הסיכום",3000); return; }
   if(silent){ if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return; }
-  else if(needToken(intakePull)) return;
+  else if(needToken(intakePullSheet)) return;
   intakeBusy=true; intakeLast=Date.now();
   try{ if(!silent) iMsg("מושך מהגיליון…");
     const readRows=async()=>{ const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A2:Q")+"?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER");
@@ -1174,15 +1260,17 @@ function viewTasks(){
   list.sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
   const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
   const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
-  const pend=DB.tasks.filter(t=>t.src==="sheet"&&t.decision==="בבדיקה");
-  const intake=(DB.settings.intakeId||pend.length)?`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מהורוביץ</b>
-    ${DB.settings.intakeId?`<button class="act" id="inPull">משיכה מהורוביץ</button>
-    <a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">פתיחת הגיליון</a>`:""}
+  const pend=DB.tasks.filter(t=>t.src&&t.decision==="בבדיקה");
+  const xlName=(()=>{try{return localStorage.getItem("cpa-xl-name")||"";}catch(e){return "";}})();
+  const intake=`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מהורוביץ</b>
+    <button class="act" id="inPull">משיכה מהורוביץ</button>
+    ${intakeMode()==="sheet"&&DB.settings.intakeId?`<a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">פתיחת הגיליון</a>`:
+      `<span class="mute">${xlName?"קובץ: "+esc(xlName):"קובץ אקסל לא נבחר במכשיר הזה"}</span>`}
     <span class="mute">${pend.length} ממתינות לאישור שלך</span></div>
     ${pend.length?table(["לקוח","שנה","מוצר","שכ\"ט","החלק שלך","צפי דקל","₪ לשעה לפי דקל","הפניה","מייצג","לו\"ז",""],
       pend.map(t=>{const c=clientOf(t), m=taskMine(t), d=num(t.dekelEst);
         return [`<a href="#" onclick="editTask('${t.id}');return false">${esc(tName(t))}</a>`,t.year,t.type,f0(t.fee),f0(m),d?f1(d):"",d?f0(m/d):"",esc(c.ref||""),esc(c.rep||""),heDate(t.sched),
-          `<button class="mini" onclick="editTask('${t.id}')">פתיחה</button>`];}),null,[0,2,4,10]):""}</div>`:"";
+          `<button class="mini" onclick="editTask('${t.id}')">פתיחה</button>`];}),null,[0,2,4,10]):""}</div>`;
   return `${printBtn()}${printHead("משימות")}<h2>משימות (${list.length})</h2>${intake}
   <div class="row noprint">
     <label>סטטוס הגשה<select id="fltStatus">${opts(["פתוחים","הכול",...SUBM],F.status)}</select></label>
@@ -1837,9 +1925,14 @@ function viewData(){
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
   </div>
-  <h2>גיליון קליטה מהורוביץ</h2>
+  <h2>קליטה מהורוביץ</h2>
   <div class="panel">
-    ${DB.settings.intakeId?`<div class="row"><a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">📄 פתיחת הגיליון</a>
+    <div class="row"><label>מקור הקליטה<select id="inMode">${opts([{v:"excel",t:"קובץ אקסל בתיקיית המשרד"},{v:"sheet",t:"גיליון גוגל"}],intakeMode())}</select></label></div>
+    ${intakeMode()==="excel"?`<div class="row"><button class="act" id="inPickXl">בחירת קובץ האקסל</button>
+      <button class="ghost" id="inPull2">משיכה מהורוביץ</button>
+      <span class="mute">${(()=>{let n="";try{n=localStorage.getItem("cpa-xl-name")||"";}catch(e){}return n?"קובץ נבחר: "+esc(n):"עוד לא נבחר קובץ במחשב הזה";})()}</span></div>
+      <div class="mute">בוחרים פעם אחת את קובץ הקליטה מתוך תיקיית המשרד המסונכרנת. האפליקציה רק קוראת אותו ולא כותבת בו. המשיכה מהאקסל עובדת במחשב בלבד; עדכונים מ־Claude נקלטים גם בטלפון.</div>`
+    :DB.settings.intakeId?`<div class="row"><a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">📄 פתיחת הגיליון</a>
       <button class="act" id="inPull2">משיכה מהורוביץ</button>
       <button class="ghost danger" id="inForget">ניתוק הגיליון</button></div>
       <div class="mute">משתפים את הגיליון עם המשרד מתוך גוגל שיטס (כפתור "שיתוף"), ואפשר להעביר אותו לתיקיית המשרד בדרייב — הקישור לא משתנה.</div>`
@@ -2387,6 +2480,8 @@ function wire(){
   if(el("inPull")) el("inPull").onclick=()=>intakePull();
   if(el("inPull2")) el("inPull2").onclick=()=>intakePull();
   if(el("inCreate")) el("inCreate").onclick=()=>intakeCreate();
+  if(el("inPickXl")) el("inPickXl").onclick=()=>xlPick();
+  if(el("inMode")) el("inMode").onchange=e=>{DB.settings.intakeMode=e.target.value;saveLocal();renderAll();showTab("data");};
   if(el("inForget")) el("inForget").onclick=()=>{ if(!confirm("לנתק את הגיליון מהמערכת? הגיליון עצמו לא יימחק."))return;
     delete DB.settings.intakeId; delete DB.settings.intakeUrl; saveLocal(); renderAll(); showTab("data"); toast("הגיליון נותק");};
   if(el("clAdd")) el("clAdd").onclick=()=>{const n=$("#clNew").value.trim();if(!n)return;
@@ -2478,7 +2573,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.62.0";
+const VER="3.63.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
