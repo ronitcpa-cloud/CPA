@@ -897,6 +897,9 @@ function planTimes(p){
   const f=d=>d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes())+":00";
   return {start:f(s0),end:f(e0)};
 }
+const DEFCAL="8c6158412b66ed8adbce8d40c69acaf34b8c374b4ff93e402ea4c065f00c9f10@group.calendar.google.com";
+const calId=()=>{ const v=DB.settings.gcalId; return (v===undefined||v===null)?DEFCAL:(String(v).trim()||"primary"); };
+const calBase=c=>"https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(c)+"/events";
 async function gcalUpsert(p){
   if(!DB.settings.gcal) return;
   if(privOf(p.date)) return;
@@ -905,12 +908,13 @@ async function gcalUpsert(p){
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
   try{
-    const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+    const cal=calId(), base=calBase(cal);
+    if(p.evId&&(p.evCal||"primary")!==cal){ try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") throw e; } delete p.evId; }
     let r=await calFetch(p.evId?(base+"/"+p.evId):base,
       {method:p.evId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     if(r.status===404||r.status===410){ delete p.evId; r=await calFetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); }
     if(!r.ok) return await calErr(r);
-    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal(); return {ok:true};}
+    const j=await r.json(); if(j&&j.id){p.evId=j.id; p.evCal=cal; saveLocal(); return {ok:true};}
     return {ok:false,err:"תשובה לא צפויה מיומן גוגל"};
   }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} return {ok:false,err:e.message==="auth"?"צריך להתחבר מחדש לגוגל":e.message}; }
 }
@@ -925,13 +929,13 @@ async function calErr(r){ let m=""; try{ const j=await r.json(); m=(j.error&&j.e
 async function privCleanup(k){
   const ps=DB.plans.filter(p=>p.date===k&&p.evId); if(!ps.length) return;
   if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) privCleanup(k); },false); return; }
-  let n=0; for(const p of ps){ try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") return; }
+  let n=0; for(const p of ps){ try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") return; }
     delete p.evId; n++; }
   saveLocal(); toast("הוסרו "+n+" משבצות עבודה מיומן גוגל",4000);
 }
 async function gcalDelete(p){
   if(!p||!p.evId||!drive.token) return;
-  try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }
+  try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }
   catch(e){}
 }
 async function gcalSyncMonth(m){
@@ -1996,6 +2000,7 @@ function viewData(){
     <label>תעריף ברירת מחדל לק"מ<input id="sKm" type="number" step="0.1" value="${DB.settings.kmRate}"></label>
     <label>מייל לשליחת דרישות<input id="sMail" value="${esc(DB.settings.billEmail||"")}"></label>
     <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
+    <label style="min-width:280px">יומן יעד (מזהה יומן גוגל; ריק = היומן הראשי)<input id="sGcalId" value="${esc(DB.settings.gcalId===undefined||DB.settings.gcalId===null?DEFCAL:DB.settings.gcalId)}" style="width:100%"></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -2541,6 +2546,7 @@ function wire(){
     DB.settings.targetNext=+$("#sNext").value||250;DB.settings.hoursPerDay=+$("#sHpd").value||7;
     DB.settings.kmRate=+$("#sKm").value||1;DB.settings.billEmail=$("#sMail").value.trim();DB.settings.inclGeneral=$("#sGen").value==="yes";
     DB.settings.gcal=$("#sGcal").value==="yes";
+    if($("#sGcalId")) DB.settings.gcalId=$("#sGcalId").value.trim();
     saveLocal();renderAll();showTab("data");toast("ההגדרות נשמרו");};
   if(el("jsonOut")) el("jsonOut").onclick=()=>{
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
@@ -2589,7 +2595,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.63.2";
+const VER="3.64.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
