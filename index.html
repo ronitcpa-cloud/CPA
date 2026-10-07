@@ -85,6 +85,7 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .cal .d .c{background:#dff0fd;color:#0d6cb4;border:1px solid #a9d6f7;border-radius:4px;padding:0 3px;
  font-size:9.5px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;min-width:0}
 .cal .d .c.done{background:#e2e7fb;color:#31409b;border-color:#bcc6f0}
+.cal .d .c.busy{background:#eef1f4;color:#5c6875;border-color:#d3dae1}
 .cal .d.sel{outline:2px solid var(--accent)}
 .pill.cancel{background:#eff1f4;color:#7b8798;border-color:#dde3ea}
 #toast{position:fixed;bottom:14px;right:14px;background:var(--ink);color:#fff;padding:9px 14px;border-radius:9px;font-size:14px;opacity:0;transition:.25s;z-index:50}
@@ -219,8 +220,7 @@ const iso=d=>{ if(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}/.test(d)) return d.sl
 const heDate=d=>d?new Date(d).toLocaleDateString("he-IL"):"";
 const monthOf=d=>d?String(d).slice(0,7):"";
 const num=v=>typeof v==="number"?v:(v==null||v===""||isNaN(parseFloat(v))?0:parseFloat(v));
-let toastT=null;
-function toast(t,ms){const e=$("#toast");e.textContent=t;e.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove("show"),ms||2200);}
+function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2200);}
 
 /* ============ lock ============ */
 const LKEY="cpa-lock";
@@ -243,7 +243,7 @@ function decryptStr(blob,key){
 
 /* ============ data ============ */
 const LS="cpa-system-v2";
-let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],privDays:{},
+let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],busy:[],
   settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},
   updated:null};
 const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
@@ -269,7 +269,7 @@ function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
   if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
   DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},d.settings||{});
-  DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];
+  DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];DB.busy=DB.busy||[];
   (DB.officeDates||[]).forEach(d=>{DB.time.filter(x=>x.date===d).forEach(x=>{x.office=true;});});
   DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
 const clientName=id=>{const c=DB.clients.find(c=>c.id===id);return c?c.name:"—";};
@@ -309,15 +309,12 @@ function hebInfo(dt){
   }catch(e){out=null;}
   HEB[k]=out; return out;
 }
-const privOf=k=>(DB.privDays&&DB.privDays[k])||"";
 function dayInfo(dt){
   const d=new Date(dt), w=d.getDay(), k=iso(d);
   if(DB.offDays.includes(k)) return {off:true,label:"חופשה"};
-  if(privOf(k)==="full") return {off:true,label:"🔒 פרטי"};
   if(w===5) return {off:true,label:"שישי"};
   if(w===6) return {off:true,label:"שבת"};
   const h=hebInfo(d); if(h) return {off:true,label:h};
-  if(privOf(k)==="part") return {off:false,label:"🔒 פרטי חלקי"};
   return {off:false,label:""};
 }
 function businessDays(a,b){let n=0;const d=new Date(a);
@@ -383,7 +380,7 @@ function gReady(){
   if(window.GSI_BLOCKED||!(window.google&&google.accounts&&google.accounts.oauth2)){
     dInfo("החיבור לדרייב עובד רק מהאתר שלך (github.io)",true);return false;}
   return true;}
-function gAuth(cb,silent,force){
+function gAuth(cb,silent){
   if(!gReady())return;
   if(silent&&drive.silentTried){ cb&&cb(false); return; }
   if(silent) drive.silentTried=true;
@@ -399,15 +396,13 @@ function gAuth(cb,silent,force){
           const jj=await rr.json(); if(jj&&jj.user&&jj.user.emailAddress)
             localStorage.setItem("cpa-gmail",jj.user.emailAddress);}catch(e){}})();
         const sc=r.scope||"";
-        const missing=sc&&(sc.indexOf("drive.file")<0||(DB.settings.gcal&&sc.indexOf("calendar")<0));
-        if(missing&&!silent&&!force){ gAuth(cb,false,true); return; }
-        if(missing&&!silent){ dInfo("חסרה הרשאה — לסמן את כל ההרשאות במסך של גוגל (דרייב ויומן)",true); }
+        if(sc&&sc.indexOf("drive.file")<0&&!silent){ dInfo("חסרה הרשאת כתיבה לדרייב — לאשר את שתי ההרשאות במסך של גוגל",true); }
         cb&&cb(true);
       } else { drive.needsAuth=true;
         if(!silent) dInfo("ההתחברות לא הושלמה: "+((r&&r.error)||"נסגר החלון"),true);
         cb&&cb(false); }
     }
-  }).requestAccessToken({prompt:force?"consent":""});
+  }).requestAccessToken({prompt:silent?"":"consent"});
 }
 async function gFetch(url,opt){
   if(drive.exp&&Date.now()>drive.exp){ drive.token=null; throw new Error("auth"); }
@@ -418,278 +413,6 @@ async function gFetch(url,opt){
   if(!r.ok) throw new Error("שגיאת דרייב "+r.status);
   return r;
 }
-
-/* ============ intake sheet (Dekel) ============ */
-const SHEETS="https://sheets.googleapis.com/v4/spreadsheets/";
-const IRNG="'קליטה'";
-const IHEAD=["שם לקוח","סוג לקוח","משימה","שנה","שכ\"ט משרד","צפי שעות דקל","מנהל/ת חשבונות","תוכנה","קונטו שנה קודמת","מי הגיש שנה קודמת","מייצג","הפניה","לו\"ז לסיום","הערות קבועות ללקוח","הערות לעבודה הזו","אישור רונית","קוד"];
-const ILIST={1:["עצמאי מורשה","עצמאי פטור","חברה","שכיר","עמותה"],2:["דוח שנתי","הצהרת הון","החזר מס","אחר"],
-  7:["חשבשבת","ריווחית","פריוריטי","אחר"],8:["יש","אין"],9:["אנחנו","רו\"ח אחר","חדש – אין דוח קודם"],
-  10:["הורוביץ","קפילוטו","דקל"],11:["דקל","ליבנת","תמר","גיא","עדן"]};
-const REPS=ILIST[10], REFS=ILIST[11], PREVS=ILIST[9];
-const normName=s=>String(s||"").replace(/[\s"'״׳`.,\-–]/g,"").toLowerCase();
-const findClient=n=>{const k=normName(n); return k?DB.clients.find(c=>normName(c.name)===k):null;};
-const clientOf=t=>(t&&t.clientId?DB.clients.find(c=>c.id===t.clientId):null)||(t&&t.intakeClient)||{};
-function mergeClient(c,ic){ if(!c||!ic) return;
-  ["type","bk","soft","rep","ref"].forEach(k=>{ if(!c[k]&&ic[k]) c[k]=ic[k]; });
-  if(ic.notes&&(c.notes||"").indexOf(ic.notes)<0) c.notes=c.notes?c.notes+"\n"+ic.notes:ic.notes; }
-function newClientFrom(name,t){ const ic=(t&&t.intakeClient)||{}; const ex=findClient(name);
-  if(ex){ mergeClient(ex,ic); return ex; }
-  const c={id:uid(),name:name,type:ic.type||"",fileNo:"",bk:ic.bk||"",soft:ic.soft||"",rep:ic.rep||"",ref:ic.ref||"",notes:ic.notes||""};
-  DB.clients.push(c); return c; }
-const numv=v=>typeof v==="number"?v:(+String(v==null?"":v).replace(/[^\d.]/g,"")||0);
-function dateFrom(v){ if(typeof v==="number"&&v>0) return new Date(Date.UTC(1899,11,30)+Math.round(v)*864e5).toISOString().slice(0,10);
-  const m=String(v||"").trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
-  if(m){ const y=m[3].length===2?"20"+m[3]:m[3]; return y+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"); }
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(v||""))?String(v):""; }
-function mapCType(s){ s=String(s||"").trim(); if(!s) return "";
-  if(s.indexOf("פטור")>=0) return "עצמאי — פטור"; if(s.indexOf("עצמאי")>=0) return "עצמאי — מורשה"; return s; }
-function intakeRec(row){ const s=k=>row[k]==null?"":String(row[k]).trim();
-  return {name:s(0),ctype:mapCType(s(1)),task:s(2),year:numv(row[3])||"",fee:numv(row[4]),dekelEst:numv(row[5]),
-    bk:s(6),soft:s(7),conto:s(8),prevFiler:s(9),rep:s(10),ref:s(11),sched:dateFrom(row[12]),cnotes:s(13),tnotes:s(14)}; }
-function intakeType(r){ if(r.task==="הצהרת הון"||r.task==="החזר מס"||r.task==="אחר") return r.task;
-  return r.ctype==="חברה"?"דוח שנתי חברה":"דוח שנתי יחיד"; }
-function intakeFill(t,r){ t.year=r.year||t.year||(new Date().getFullYear()-1); t.type=intakeType(r); t.fee=r.fee; t.dekelEst=r.dekelEst;
-  t.sched=r.sched||t.sched||null; t.conto=r.conto; t.prevFiler=r.prevFiler;
-  t.intakeClient={type:r.ctype,bk:r.bk,soft:r.soft,rep:r.rep,ref:r.ref,notes:r.cnotes};
-  t.notes=r.tnotes; }
-const intakeMarkText=t=>(t.decision==="לקחתי"?"✔ נלקח ":"✖ לא נלקח ")+new Date().toLocaleDateString("he-IL");
-function iMsg(t,bad){ const e=$("#inMsg"); if(e) e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t); if(t) toast(t,t.length>40?7000:3000); }
-async function sFetch(url,opt){
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; throw new Error("auth"); }
-  const o=opt||{}; o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
-  const r=await fetch(url,o);
-  if(r.status===401){ drive.token=null; throw new Error("auth"); }
-  if(!r.ok){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)||""; }catch(e){}
-    if(r.status===403&&/has not been used|is disabled|SERVICE_DISABLED/i.test(m))
-      throw new Error("צריך להפעיל את Google Sheets API בפרויקט בגוגל קלאוד (פעם אחת)");
-    if(r.status===404) throw new Error("הגיליון לא נמצא — אולי נמחק");
-    throw new Error("שגיאת גוגל שיטס "+r.status+(m?" · "+m:"")); }
-  return r; }
-function needToken(fn){ if(drive.token&&!(drive.exp&&Date.now()>drive.exp)) return false;
-  drive.token=null; gAuth(ok=>{ if(ok) fn(); },false); return true; }
-async function intakeCreate(){
-  if(DB.settings.intakeId&&!confirm("כבר קיים גיליון קליטה. ליצור גיליון חדש במקומו?")) return;
-  if(needToken(intakeCreate)) return;
-  try{ iMsg("יוצר גיליון…");
-    const r=await sFetch(SHEETS.slice(0,-1),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      properties:{title:"קליטת תיקים מהורוביץ – רונית פינץ ערוסי"},
-      sheets:[{properties:{sheetId:0,title:"קליטה",rightToLeft:true,gridProperties:{rowCount:500,columnCount:17,frozenRowCount:1}},
-        data:[{startRow:0,startColumn:0,rowData:[{values:IHEAD.map(h=>({userEnteredValue:{stringValue:h},userEnteredFormat:{textFormat:{bold:true}}}))}]}]}]})});
-    const j=await r.json(); const id=j.spreadsheetId;
-    const rg=(c1,c2)=>({sheetId:0,startRowIndex:1,endRowIndex:500,startColumnIndex:c1,endColumnIndex:c2});
-    const req=Object.entries(ILIST).map(([c,l])=>({setDataValidation:{range:rg(+c,+c+1),rule:{
-      condition:{type:"ONE_OF_LIST",values:l.map(v=>({userEnteredValue:v}))},showCustomUi:true,strict:+c!==7}}}));
-    req.push({setDataValidation:{range:rg(12,13),rule:{condition:{type:"DATE_IS_VALID"},strict:true}}});
-    req.push({repeatCell:{range:rg(12,13),cell:{userEnteredFormat:{numberFormat:{type:"DATE",pattern:"dd/mm/yyyy"}}},fields:"userEnteredFormat.numberFormat"}});
-    [3,4,5].forEach(c=>req.push({setDataValidation:{range:rg(c,c+1),rule:{condition:{type:"NUMBER_GREATER",values:[{userEnteredValue:"0"}]},strict:true}}}));
-    req.push({autoResizeDimensions:{dimensions:{sheetId:0,dimension:"COLUMNS",startIndex:0,endIndex:16}}});
-    req.push({updateDimensionProperties:{range:{sheetId:0,dimension:"COLUMNS",startIndex:16,endIndex:17},properties:{hiddenByUser:true},fields:"hiddenByUser"}});
-    req.push({addProtectedRange:{protectedRange:{range:{sheetId:0,startColumnIndex:15,endColumnIndex:17},description:"מתמלא אוטומטית מהמערכת של רונית",warningOnly:true}}});
-    await sFetch(SHEETS+id+":batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requests:req})});
-    DB.settings.intakeId=id; DB.settings.intakeUrl=j.spreadsheetUrl||("https://docs.google.com/spreadsheets/d/"+id+"/edit");
-    saveLocal(); renderAll(); showTab("data"); iMsg("הגיליון נוצר ✓ — לשתף אותו עם המשרד מתוך גוגל שיטס");
-  }catch(e){ if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakeCreate(); },false); return; } iMsg("יצירת הגיליון נכשלה: "+e.message,true); }
-}
-let intakeBusy=false, intakeLast=0;
-function intakeAuto(){ if(intakeBusy) return;
-  if(intakeMode()==="sheet"&&(!DB.settings.intakeId||!drive.token||(drive.exp&&Date.now()>drive.exp))) return;
-  if(Date.now()-intakeLast<5*60*1000) return;
-  intakePull(true); }
-
-/* ---- Claude inbox: CSV command files in Drive named claude-intake* ---- */
-function parseCSV(txt){ txt=String(txt||"").replace(/^\uFEFF/,""); const out=[]; let row=[],f="",q=false;
-  for(let i=0;i<txt.length;i++){ const ch=txt[i];
-    if(q){ if(ch==='"'){ if(txt[i+1]==='"'){f+='"';i++;} else q=false; } else f+=ch; }
-    else if(ch==='"') q=true; else if(ch===','){row.push(f);f="";}
-    else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&txt[i+1]==='\n') i++; row.push(f); out.push(row); row=[]; f=""; }
-    else f+=ch; }
-  if(f!==""||row.length){ row.push(f); out.push(row); }
-  return out.filter(r=>r.some(x=>String(x).trim()!=="")); }
-const CLEAR="(ריק)";
-function applyVals(t,vals){
-  const v=c=>vals[c]===CLEAR?"":String(vals[c]==null?"":vals[c]), has=c=>String(vals[c]==null?"":vals[c])!=="";
-  if(has(0)&&!t.clientId) t.prospect=v(0);
-  if(has(3)) t.year=numv(v(3))||t.year; if(has(4)) t.fee=numv(v(4)); if(has(5)) t.dekelEst=numv(v(5));
-  if(has(8)) t.conto=v(8); if(has(9)) t.prevFiler=v(9); if(has(12)) t.sched=dateFrom(vals[12]===CLEAR?"":vals[12])||null; if(has(14)) t.notes=v(14);
-  if(has(2)||has(1)){ const c0=clientOf(t); t.type=intakeType({task:has(2)?v(2):(t.type==="הצהרת הון"?"הצהרת הון":"דוח שנתי"),ctype:has(1)?mapCType(v(1)):(c0.type||"")}); }
-  const c=t.clientId?DB.clients.find(x=>x.id===t.clientId):null;
-  const tgt=c||(t.intakeClient=t.intakeClient||{});
-  if(has(1)) tgt.type=mapCType(v(1)); if(has(6)) tgt.bk=v(6); if(has(7)) tgt.soft=v(7); if(has(10)) tgt.rep=v(10); if(has(11)) tgt.ref=v(11);
-  if(has(13)) tgt.notes=v(13); }
-
-function taskDeletable(t){ return !DB.time.some(x=>x.taskId===t.id)&&!DB.bills.some(b=>b.taskId===t.id)&&!DB.plans.some(p=>p.taskId===t.id); }
-async function inboxProcess(id,rows){
-  DB.settings.inboxDone=DB.settings.inboxDone||[];
-  const q=encodeURIComponent("name contains 'claude-intake' and trashed=false");
-  const lr=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&orderBy=createdTime&pageSize=50&fields=files(id,name,createdTime)");
-  const files=(((await lr.json()).files)||[]).filter(f=>DB.settings.inboxDone.indexOf(f.id)<0);
-  const res={files:0,add:0,upd:0,del:0,warn:[]}; if(!files.length) return res;
-  const keyRow=k=>rows.findIndex(r=>String(r[16]==null?"":r[16]).trim()===k);
-  const appends=[], cells=[], dels=[], appUpd=[];
-  for(const f of files){
-    const fr=await gFetch("https://www.googleapis.com/drive/v3/files/"+f.id+"?alt=media");
-    const recs=parseCSV(await fr.text());
-    recs.forEach(r=>{ const act=String(r[0]||"").trim(); if(act==="פעולה"||!act) return;
-      const key=String(r[1]||"").trim(), vals=r.slice(2,17); while(vals.length<15) vals.push("");
-      if(act==="הוספה"){ if(!String(vals[0]).trim()){res.warn.push("שורת הוספה בלי שם לקוח");return;}
-        appends.push(vals.map(v=>v===CLEAR?"":v)); res.add++; return; }
-      const i=key?keyRow(key):-1;
-      if(i<0){ res.warn.push(act+": לא נמצאה שורה עם הקוד "+key); return; }
-      if(act==="עדכון"){ vals.forEach((v,c)=>{ if(String(v)==="") return;
-          cells.push({range:IRNG+"!"+String.fromCharCode(65+c)+(i+2),values:[[v===CLEAR?"":v]]}); });
-        appUpd.push({key,vals}); res.upd++; }
-      else if(act==="מחיקה"){ if(dels.indexOf(i)<0) dels.push(i); res.del++;
-        const t=taskById(key);
-        if(t){ if(t.decision==="בבדיקה"||taskDeletable(t)){ DB.tasks=DB.tasks.filter(x=>x.id!==t.id); }
-          else res.warn.push(tName(t)+" "+(t.year||"")+": נמחק מהגיליון, נשאר באפליקציה כי יש לו שעות או דרישת תשלום"); } }
-      else res.warn.push("פעולה לא מוכרת: "+act); });
-    res.files++; }
-  const H={"Content-Type":"application/json"};
-  if(cells.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:H,body:JSON.stringify({valueInputOption:"USER_ENTERED",data:cells})});
-  if(dels.length) await sFetch(SHEETS+id+":batchUpdate",{method:"POST",headers:H,body:JSON.stringify({requests:
-    dels.sort((a,b)=>b-a).map(i=>({deleteDimension:{range:{sheetId:0,dimension:"ROWS",startIndex:i+1,endIndex:i+2}}}))})});
-  if(appends.length) await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A:O")+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-    {method:"POST",headers:H,body:JSON.stringify({values:appends})});
-  appUpd.forEach(u=>{ const t=taskById(u.key); if(!t||t.decision==="בבדיקה") return; applyVals(t,u.vals); });
-  files.forEach(f=>DB.settings.inboxDone.push(f.id));
-  return res; }
-
-/* ---- Excel intake (office OneDrive file, read-only via File System Access) ---- */
-const intakeMode=()=>DB.settings.intakeMode||(DB.settings.intakeId?"sheet":"excel");
-const xlKeyOf=r=>normName(r.name)+"|"+(r.year||"")+"|"+intakeType(r);
-const findExisting=r=>DB.tasks.find(t=>normName(tName(t))===normName(r.name)&&String(t.year)===String(r.year)&&t.type===intakeType(r));
-async function xlPick(){
-  if(!window.showOpenFilePicker){ toast("בחירת קובץ אפשרית רק במחשב, בכרום או באדג׳",4000); return; }
-  try{ const [h]=await window.showOpenFilePicker({id:"cpaIntakeXl",multiple:false,
-      types:[{description:"Excel",accept:{"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":[".xlsx"]}}]});
-    await idbSet("xl",h); try{localStorage.setItem("cpa-xl-name",h.name||"");}catch(e){}
-    DB.settings.intakeMode="excel"; saveLocal(); renderAll(); showTab("data"); iMsg("הקובץ נבחר: "+h.name+" · אפשר למשוך");
-  }catch(e){ if(e&&e.name!=="AbortError") iMsg("בחירת הקובץ נכשלה: "+e.message,true); } }
-async function xlRows(silent){
-  let h=null; try{ h=await idbGet("xl"); }catch(e){}
-  if(!h) return {err:"עוד לא נבחר קובץ האקסל במחשב הזה (לשונית נתונים)"};
-  let p="prompt"; try{ p=await h.queryPermission({mode:"read"}); }catch(e){}
-  if(p!=="granted"){ if(silent) return {err:"skip"}; try{ p=await h.requestPermission({mode:"read"}); }catch(e){} }
-  if(p!=="granted") return {err:"לא אושרה גישה לקובץ האקסל"};
-  const f=await h.getFile(); const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});
-  const ws=wb.Sheets["קליטה"]||wb.Sheets[wb.SheetNames[0]];
-  const arr=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:""});
-  const hi=arr.findIndex(r=>String(r[0]||"").trim()==="שם לקוח");
-  return {rows:arr.slice(hi+1), name:f.name}; }
-async function inboxApp(){
-  DB.settings.inboxDone=DB.settings.inboxDone||[];
-  const res={files:0,add:0,upd:0,del:0,warn:[]};
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return res;
-  const q=encodeURIComponent("name contains 'claude-intake' and trashed=false");
-  const lr=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&orderBy=createdTime&pageSize=50&fields=files(id,name,createdTime)");
-  const files=(((await lr.json()).files)||[]).filter(f=>DB.settings.inboxDone.indexOf(f.id)<0);
-  for(const f of files){
-    const fr=await gFetch("https://www.googleapis.com/drive/v3/files/"+f.id+"?alt=media");
-    parseCSV(await fr.text()).forEach(r=>{ const act=String(r[0]||"").trim(); if(act==="פעולה"||!act) return;
-      const key=String(r[1]||"").trim(), vals=r.slice(2,17); while(vals.length<15) vals.push("");
-      if(act==="הוספה"){ const rec=intakeRec(vals.map(x=>x===CLEAR?"":x)); if(!rec.name){res.warn.push("הוספה בלי שם לקוח");return;}
-        const ex=findExisting(rec); if(ex){ res.warn.push(rec.name+" "+rec.year+": כבר קיימת משימה, לא נוספה"); return; }
-        const c=findClient(rec.name);
-        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
-          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"claude",checkedAt:null};
-        intakeFill(t,rec); DB.tasks.push(t); if(c) mergeClient(c,t.intakeClient); res.add++; return; }
-      const t=taskById(key); if(!t){ res.warn.push(act+": לא נמצאה משימה עם הקוד "+key); return; }
-      if(act==="עדכון"){ applyVals(t,vals); if(t.src==="excel") t.src="claude"; res.upd++; }
-      else if(act==="מחיקה"){ if(t.decision==="בבדיקה"||taskDeletable(t)){ DB.tasks=DB.tasks.filter(x=>x.id!==t.id); res.del++; }
-        else res.warn.push(tName(t)+" "+(t.year||"")+": לא נמחקה כי יש לה שעות, תכנון או דרישת תשלום"); }
-      else res.warn.push("פעולה לא מוכרת: "+act); });
-    DB.settings.inboxDone.push(f.id); res.files++; }
-  return res; }
-async function intakePullXL(silent){
-  if(intakeBusy){ if(!silent) toast("משיכה כבר רצה ברקע, עוד רגע יופיע הסיכום",3000); return; }
-  intakeBusy=true; intakeLast=Date.now();
-  try{ if(!silent) iMsg("מושך מקובץ האקסל…");
-    let ib={files:0,add:0,upd:0,del:0,warn:[]};
-    try{ ib=await inboxApp(); }catch(e){ if(!silent) ib.warn.push("קובצי הפקודות לא נקראו: "+e.message); }
-    const xr=await xlRows(silent);
-    let fresh=0, refreshed=0, linked=0, gone=[];
-    if(xr.rows){ DB.settings.xlSeen=DB.settings.xlSeen||{}; const seen=DB.settings.xlSeen, inFile=new Set();
-      xr.rows.forEach(row=>{ const rec=intakeRec(row); if(!rec.name) return; const k=xlKeyOf(rec);
-        if(inFile.has(k)) return; inFile.add(k);
-        if(seen[k]){ const t=taskById(seen[k]);
-          if(t&&t.decision==="בבדיקה"&&t.src==="excel"){ const b=JSON.stringify(t); intakeFill(t,rec); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); if(JSON.stringify(t)!==b) refreshed++; }
-          return; }
-        const ex=findExisting(rec);
-        if(ex){ seen[k]=ex.id; linked++;
-          if(ex.decision==="בבדיקה"){ ex.src="excel"; ex.xlKey=k; delete ex.sheetKey; intakeFill(ex,rec); }
-          return; }
-        const c=findClient(rec.name);
-        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
-          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"excel",xlKey:k,checkedAt:null};
-        intakeFill(t,rec); DB.tasks.push(t); if(c) mergeClient(c,t.intakeClient); seen[k]=t.id; fresh++; });
-      gone=DB.tasks.filter(t=>t.src==="excel"&&t.decision==="בבדיקה"&&t.xlKey&&!inFile.has(t.xlKey));
-      if(gone.length){ DB.tasks=DB.tasks.filter(t=>gone.indexOf(t)<0); gone.forEach(t=>{ delete seen[t.xlKey]; }); } }
-    let msg=xr.rows?(`נקלטו ${fresh} משימות חדשות מהורוביץ`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(linked?` · ${linked} שורות זוהו כמשימות קיימות`:"")+(gone.length?` · הוסרו ${gone.length} ממתינות שנמחקו מהקובץ`:""))
-      :(xr.err==="skip"?"":xr.err);
-    if(ib.files) msg=`עדכונים מ־Claude: ${ib.add} הוספות, ${ib.upd} עדכונים, ${ib.del} מחיקות`+(msg?" · "+msg:"");
-    if(ib.warn.length) msg+=" · שימי לב: "+ib.warn.join(" | ");
-    intakeBusy=false;
-    if(silent){ if(fresh||refreshed||linked||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg,8000); } return; }
-    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks"); iMsg(msg,!xr.rows&&!ib.files);
-  }catch(e){ intakeBusy=false; if(!silent) iMsg("המשיכה נכשלה: "+e.message,true); } }
-async function intakePull(silent){
-  if(intakeMode()==="excel") return intakePullXL(silent===true);
-  return intakePullSheet(silent); }
-async function intakePullSheet(silent){
-  silent=silent===true;
-  const id=DB.settings.intakeId; if(!id){ if(!silent) toast("עוד לא נוצר גיליון קליטה (בלשונית נתונים)"); return; }
-  if(intakeBusy){ if(!silent) toast("משיכה כבר רצה ברקע, עוד רגע יופיע הסיכום",3000); return; }
-  if(silent){ if(!drive.token||(drive.exp&&Date.now()>drive.exp)) return; }
-  else if(needToken(intakePullSheet)) return;
-  intakeBusy=true; intakeLast=Date.now();
-  try{ if(!silent) iMsg("מושך מהגיליון…");
-    const readRows=async()=>{ const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!A2:Q")+"?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER");
-      return ((await r.json()).values)||[]; };
-    let rows=await readRows();
-    const ib=await inboxProcess(id,rows);
-    if(ib.files) rows=await readRows();
-    const upd=[], fresh=[], marked=[]; let refreshed=0;
-    const keys=new Set(rows.map(r=>String(r[16]==null?"":r[16]).trim()).filter(Boolean));
-    const gone=DB.tasks.filter(t=>t.src==="sheet"&&t.decision==="בבדיקה"&&t.sheetKey&&!keys.has(t.sheetKey));
-    if(gone.length) DB.tasks=DB.tasks.filter(t=>gone.indexOf(t)<0);
-    rows.forEach((row,i)=>{ const rec=intakeRec(row); if(!rec.name) return;
-      const key=row[16]==null?"":String(row[16]).trim(), rn=i+2;
-      if(!key){ const c=findClient(rec.name);
-        const t={id:uid(),clientId:c?c.id:"",prospect:c?"":rec.name,extra:0,est:0,work:"אצלי",submit:"לטיפול",
-          notes:"",checkNote:"",fileNo:"",decision:"בבדיקה",noBill:false,src:"sheet",checkedAt:null};
-        t.sheetKey=t.id; intakeFill(t,rec); fresh.push(t);
-        upd.push({range:IRNG+"!P"+rn+":Q"+rn,values:[["ממתין לאישור רונית",t.id]]}); return; }
-      const t=taskById(key); if(!t) return;
-      if(t.decision==="בבדיקה"){ const b=JSON.stringify(t); intakeFill(t,rec); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); if(JSON.stringify(t)!==b) refreshed++; }
-      else if(t.sheetMark){ upd.push({range:IRNG+"!P"+rn,values:[[intakeMarkText(t)]]}); marked.push(t); } });
-    if(upd.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({valueInputOption:"RAW",data:upd})});
-    fresh.forEach(t=>{ DB.tasks.push(t); if(t.clientId) mergeClient(DB.clients.find(c=>c.id===t.clientId),t.intakeClient); });
-    marked.forEach(t=>{ delete t.sheetMark; });
-    let msg=`נקלטו ${fresh.length} משימות חדשות מהורוביץ`+(refreshed?` · עודכנו ${refreshed} ממתינות`:"")+(gone.length?` · הוסרו ${gone.length} ממתינות שנמחקו מהגיליון`:"")+(marked.length?` · ${marked.length} אישורים נכתבו לגיליון`:"");
-    if(ib.files) msg=`עדכונים מ־Claude: ${ib.add} הוספות, ${ib.upd} עדכונים, ${ib.del} מחיקות · `+msg+(ib.warn.length?" · שימי לב: "+ib.warn.join(" | "):"");
-    intakeBusy=false;
-    if(silent){ if(fresh.length||refreshed||marked.length||gone.length||ib.files){ saveLocal(); renderAll(); toast(msg,8000); } return; }
-    saveLocal(); renderAll(); showTab(S.tab==="data"?"data":"tasks"); iMsg(msg);
-  }catch(e){ intakeBusy=false; if(silent) return;
-    if(e.message==="auth"){ gAuth(ok=>{ if(ok) intakePull(); },false); return; } iMsg("המשיכה נכשלה: "+e.message,true); }
-}
-async function intakeFlush(){
-  const id=DB.settings.intakeId; const list=DB.tasks.filter(t=>t.sheetMark);
-  if(!id||!list.length||!drive.token||(drive.exp&&Date.now()>drive.exp)) return;
-  try{ const r=await sFetch(SHEETS+id+"/values/"+encodeURIComponent(IRNG+"!Q:Q"));
-    const col=((await r.json()).values)||[]; const upd=[], done=[];
-    list.forEach(t=>{ const i=col.findIndex(x=>x&&String(x[0])===t.sheetKey);
-      if(i>=0){ upd.push({range:IRNG+"!P"+(i+1),values:[[intakeMarkText(t)]]}); done.push(t); } });
-    if(upd.length) await sFetch(SHEETS+id+"/values:batchUpdate",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({valueInputOption:"RAW",data:upd})});
-    done.forEach(t=>{ delete t.sheetMark; }); if(done.length){ saveLocal(); toast("האישור נכתב בגיליון הורוביץ"); }
-  }catch(e){}
-}
-function intakeAfterDecision(t,prev){ if(!t) return;
-  if(t.decision==="לקחתי"&&!t.clientId&&t.prospect&&t.prospect.trim()){ const c=newClientFrom(t.prospect.trim(),t); t.clientId=c.id; t.prospect=""; }
-  if(t.sheetKey&&prev!==t.decision&&t.decision!=="בבדיקה") t.sheetMark=true; }
 async function driveSave(silent){
   try{
     if(!drive.token){ if(silent){drive.needsAuth=true; setHdr(); return;} gAuth(()=>driveSave(false),false); return;}
@@ -750,7 +473,6 @@ async function driveSync(manual){
   }
   if(manual) dInfo("סונכרן ✓");
   syncBusy=false;
-  intakeAuto();
 }
 async function driveLoad(){
   try{
@@ -803,7 +525,7 @@ const xdate=v=>{ if(v==null||v==="")return null;
 function importWorkbook(buf){
   const wb=XLSX.read(buf,{type:"array"});
   const M=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:null}):[];
-  const db={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],
+  const db={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],busy:[],
     settings:Object.assign({},DB.settings),updated:Date.now()};
   const cl=M("לקוחות");
   const addClient=(name,type)=>{name=String(name||"").trim(); if(!name)return null;
@@ -897,56 +619,63 @@ function planTimes(p){
   const f=d=>d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes())+":00";
   return {start:f(s0),end:f(e0)};
 }
-const DEFCAL="8c6158412b66ed8adbce8d40c69acaf34b8c374b4ff93e402ea4c065f00c9f10@group.calendar.google.com";
-const calId=()=>{ const v=DB.settings.gcalId; return (v===undefined||v===null)?DEFCAL:(String(v).trim()||"primary"); };
-const calBase=c=>"https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(c)+"/events";
 async function gcalUpsert(p){
   if(!DB.settings.gcal) return;
-  if(privOf(p.date)) return;
   if(!drive.token){ drive.needsAuth=true; return; }
   const t=planTimes(p);
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
   try{
-    const cal=calId(), base=calBase(cal);
-    if(p.evId&&(p.evCal||"primary")!==cal){ try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") throw e; } delete p.evId; }
-    let r=await calFetch(p.evId?(base+"/"+p.evId):base,
+    const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+    const r=await gFetch(p.evId?(base+"/"+p.evId):base,
       {method:p.evId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    if(r.status===404||r.status===410){ delete p.evId; r=await calFetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); }
-    if(!r.ok) return await calErr(r);
-    const j=await r.json(); if(j&&j.id){p.evId=j.id; p.evCal=cal; saveLocal(); return {ok:true};}
-    return {ok:false,err:"תשובה לא צפויה מיומן גוגל"};
-  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} return {ok:false,err:e.message==="auth"?"צריך להתחבר מחדש לגוגל":e.message}; }
-}
-async function calFetch(url,o){
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; throw new Error("auth"); }
-  o=o||{}; o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
-  const r=await fetch(url,o); if(r.status===401){ drive.token=null; throw new Error("auth"); } return r; }
-async function calErr(r){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)||""; }catch(e){}
-  if(r.status===403&&/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return {ok:false,err:"צריך להפעיל את Google Calendar API בפרויקט בגוגל קלאוד (פעם אחת)",fatal:true};
-  if(r.status===403&&/insufficient|scope/i.test(m)) return {ok:false,err:"חסרה הרשאת יומן — להתחבר מחדש ולסמן את הרשאת היומן",fatal:true,scope:true};
-  return {ok:false,err:"שגיאת יומן גוגל "+r.status+(m?" · "+m:""),fatal:r.status===403}; }
-async function privCleanup(k){
-  const ps=DB.plans.filter(p=>p.date===k&&p.evId); if(!ps.length) return;
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) privCleanup(k); },false); return; }
-  let n=0; for(const p of ps){ try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }catch(e){ if(e.message==="auth") return; }
-    delete p.evId; n++; }
-  saveLocal(); toast("הוסרו "+n+" משבצות עבודה מיומן גוגל",4000);
+    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal();}
+  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} }
 }
 async function gcalDelete(p){
   if(!p||!p.evId||!drive.token) return;
-  try{ await calFetch(calBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }
+  try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }
   catch(e){}
+}
+const busyOn=d=>(DB.busy||[]).filter(b=>b.date===d).sort((a,b)=>a.start<b.start?-1:1);
+const busyHours=d=>busyOn(d).reduce((s,b)=>s+num(b.hours),0);
+async function gcalPull(m){
+  if(!gReady()){toast("החיבור לגוגל זמין רק מהאתר שלך");return;}
+  if(!drive.token){ gAuth(ok=>{ if(ok) gcalPull(m); },false); return; }
+  const [Y,M]=m.split("-").map(Number);
+  const from=new Date(Y,M-1,1), to=new Date(Y,M,1);
+  const mine=new Set((DB.plans||[]).map(p=>p.evId).filter(Boolean));
+  try{
+    const url="https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime"+
+      "&maxResults=500&timeMin="+encodeURIComponent(from.toISOString())+"&timeMax="+encodeURIComponent(to.toISOString());
+    const r=await gFetch(url); const j=await r.json();
+    const out=[];
+    (j.items||[]).forEach(ev=>{
+      if(!ev.start||!ev.start.dateTime) return;
+      if(mine.has(ev.id)) return;
+      if((ev.description||"").indexOf("תוכנן במערכת")>=0) return;
+      if(ev.transparency==="transparent") return;
+      if(ev.status==="cancelled") return;
+      const att=(ev.attendees||[]).find(a=>a.self);
+      if(att&&att.responseStatus==="declined") return;
+      const s0=new Date(ev.start.dateTime), e0=new Date(ev.end.dateTime);
+      const w=s0.getDay(); if(w===5||w===6) return;
+      const date=s0.getFullYear()+"-"+pad2(s0.getMonth()+1)+"-"+pad2(s0.getDate());
+      out.push({id:ev.id,date,start:pad2(s0.getHours())+":"+pad2(s0.getMinutes()),
+        hours:Math.round((e0-s0)/36000)/100});
+    });
+    DB.busy=(DB.busy||[]).filter(b=>monthOf(b.date)!==m).concat(out);
+    saveLocal(); renderAll(); showTab("cal");
+    toast("נמשכו "+out.length+" משבצות פרטיות מהיומן");
+  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;}
+    toast("המשיכה מהיומן נכשלה: "+(e.message||"שגיאה")); }
 }
 async function gcalSyncMonth(m){
   if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
-  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
-  const all=DB.plans.filter(p=>monthOf(p.date)===m), list=all.filter(p=>!privOf(p.date));
-  let ok=0, err="";
-  for(const p of list){ const r=await gcalUpsert(p); if(r&&r.ok) ok++; else if(r){ err=r.err; if(r.scope){ drive.token=null; gAuth(g=>{ if(g) gcalSyncMonth(m); },false,true); return; } if(r.fatal) break; } }
-  const priv=all.length>list.length?" · "+(all.length-list.length)+" בימים פרטיים לא נשלחו":"";
-  if(err) toast("הסנכרון ליומן נכשל: "+err+(ok?" · "+ok+" משבצות כן נשלחו":"")+priv,9000);
-  else toast("סונכרנו "+ok+" משבצות ליומן גוגל"+priv,4000);
+  if(!drive.token){ gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
+  const list=DB.plans.filter(p=>monthOf(p.date)===m);
+  for(const p of list){ await gcalUpsert(p); }
+  toast("סונכרנו "+list.length+" משבצות ליומן");
 }
 
 /* ============ save reports to a folder ============ */
@@ -1158,8 +887,9 @@ function drillBox(){
     const days=[]; const d=new Date(t0);
     while(d<=eom){const kk=iso(d),inf=dayInfo(d);
       days.push([heDate(kk),DAYS[new Date(kk).getDay()],inf.off?inf.label:"יום עסקים",
-        inf.off?"—":f1(DB.settings.hoursPerDay),f1(planHours(kk)),f1(actualOn(kk))]); d.setDate(d.getDate()+1);}
-    return box("שעות פנויות — פירוט יומי",table(["תאריך","יום","סוג","קיבולת","מתוכנן","בפועל"],days,null));
+        inf.off?"—":f1(DB.settings.hoursPerDay),f1(planHours(kk)),f1(busyHours(kk)),f1(actualOn(kk)),
+        inf.off?"—":f1(Math.max(0,DB.settings.hoursPerDay-planHours(kk)-busyHours(kk)))]); d.setDate(d.getDate()+1);}
+    return box("שעות פנויות — פירוט יומי",table(["תאריך","יום","סוג","קיבולת","מתוכנן","פרטי","בפועל","פנוי"],days,null));
   }
   return "";
 }
@@ -1180,7 +910,9 @@ function viewStatus(){
   const pv=list=>list.reduce((s,p)=>{const t=taskById(p.taskId);return s+(t?num(p.hours)*rateEst(t):0);},0);
   const pr=(lab,list)=>`<div class="r"><span>${lab}</span><b>${f1(ph(list))||"0"}</b><span class="m">${pv(list)?f0(pv(list))+" ₪":"—"}</span></div>`;
   const cap=businessDays(t0,eom)*DB.settings.hoursPerDay;
-  const planned=ph(planIn(t0,eom)), free=cap-planned;
+  const planned=ph(planIn(t0,eom));
+  const busyLeft=(DB.busy||[]).filter(b=>b.date>=iso(t0)&&b.date<=iso(eom)).reduce((s2,b)=>s2+num(b.hours),0);
+  const free=cap-planned-busyLeft;
   const late=DB.plans.filter(p=>p.date<iso(t0)&&(()=>{const t=taskById(p.taskId);return t&&isOpen(t);})());
   const review=DB.tasks.filter(t=>t.decision==="בבדיקה");
   const dueAll=DB.bills.reduce((s,b)=>s+billAmount(b),0);
@@ -1215,7 +947,7 @@ function viewStatus(){
    ${card("נדרש לגבייה",f0(dueAll)+" ₪","ללא נסיעות · שולם "+f0(paidAll),"","due")}
    ${card("טרם דרשתי",f0(notBilledSum)+" ₪",notBilled.length+" משימות",notBilled.length?"warn":"good","notbilled")}
    ${card("משימות פתוחות",open.length,f1(remaining)+" שעות שנותרו","","open")}
-   ${card("שעות פנויות",f1(free),"עד סוף החודש · קיבולת "+f1(cap),free<0?"bad":"","free")}
+   ${card("שעות פנויות",f1(free),"עד סוף החודש · קיבולת "+f1(cap)+(busyLeft?" · פרטי "+f1(busyLeft):""),free<0?"bad":"","free")}
    ${review.length?card("בבדיקה",review.length,"טרם הוחלט","warn","review"):""}
   </div>
   ${drillBox()}
@@ -1270,8 +1002,6 @@ function viewTasks(){
   if(F.type) list=list.filter(t=>t.type===F.type);
   if(F.decision) list=list.filter(t=>(t.decision||"לקחתי")===F.decision);
   if(F.work) list=list.filter(t=>t.work===F.work);
-  if(F.rep) list=list.filter(t=>clientOf(t).rep===F.rep);
-  if(F.ref) list=list.filter(t=>clientOf(t).ref===F.ref);
   if(F.bill==="נדרש") list=list.filter(t=>billedTask(t.id));
   else if(F.bill==="טרם נדרש") list=list.filter(t=>!billedTask(t.id)&&!t.noBill&&taken(t));
   else if(F.bill==="לא לגבייה") list=list.filter(t=>t.noBill);
@@ -1280,18 +1010,7 @@ function viewTasks(){
   list.sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
   const years=[...new Set(DB.tasks.map(t=>t.year).filter(Boolean))].sort();
   const sel=(id,label,arr,val)=>`<label>${label}<select id="${id}"><option value="">הכול</option>${opts(arr,val)}</select></label>`;
-  const pend=DB.tasks.filter(t=>t.src&&t.decision==="בבדיקה");
-  const xlName=(()=>{try{return localStorage.getItem("cpa-xl-name")||"";}catch(e){return "";}})();
-  const intake=`<div class="panel noprint" style="max-width:100%;width:fit-content;overflow-x:auto;box-sizing:border-box"><div class="row"><b>📥 קליטה מהורוביץ</b>
-    <button class="act" id="inPull">משיכה מהורוביץ</button>
-    ${intakeMode()==="sheet"&&DB.settings.intakeId?`<a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">פתיחת הגיליון</a>`:
-      `<span class="mute">${xlName?"קובץ: "+esc(xlName):"קובץ אקסל לא נבחר במכשיר הזה"}</span>`}
-    <span class="mute">${pend.length} ממתינות לאישור שלך</span></div>
-    ${pend.length?table(["לקוח","שנה","מוצר","שכ\"ט","החלק שלך","צפי דקל","₪ לשעה לפי דקל","הפניה","מייצג","לו\"ז",""],
-      pend.map(t=>{const c=clientOf(t), m=taskMine(t), d=num(t.dekelEst);
-        return [`<a href="#" onclick="editTask('${t.id}');return false">${esc(tName(t))}</a>`,t.year,t.type,f0(t.fee),f0(m),d?f1(d):"",d?f0(m/d):"",esc(c.ref||""),esc(c.rep||""),heDate(t.sched),
-          `<button class="mini" onclick="editTask('${t.id}')">פתיחה</button>`];}),null,[0,2,4,10]):""}</div>`;
-  return `${printBtn()}${printHead("משימות")}<h2>משימות (${list.length})</h2>${intake}
+  return `${printBtn()}${printHead("משימות")}<h2>משימות (${list.length})</h2>
   <div class="row noprint">
     <label>סטטוס הגשה<select id="fltStatus">${opts(["פתוחים","הכול",...SUBM],F.status)}</select></label>
     <label>לקוח<select id="fltClient"><option value="">כל הלקוחות</option>${clientOpts(F.client)}</select></label>
@@ -1299,8 +1018,6 @@ function viewTasks(){
     ${sel("fltYear","שנת מס",years,F.year)}
     ${sel("fltType","מוצר",TYPES,F.type)}
     ${sel("fltWork","סטטוס עבודה",WORK,F.work)}
-    ${sel("fltRep","מייצג",REPS,F.rep)}
-    ${sel("fltRef","הפניה",REFS,F.ref)}
     ${sel("fltBill","דרישת תשלום",["נדרש","טרם נדרש","לא לגבייה"],F.bill)}
     <label>חיפוש<input id="fltQ" value="${esc(F.q)}" placeholder="שם, מוצר, הערה" style="width:150px"></label>
     <button class="ghost" id="fltClear">ניקוי</button>
@@ -1340,12 +1057,7 @@ function taskForm(t){
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">סטטוס הגשה<select id="fSub">${opts(SUBM,t.submit)}</select></label>
     <label>שכ"ט משרד<input id="fFee" type="number" value="${num(t.fee)}"></label>
     <label>תוספת נטו שלך<input id="fExtra" type="number" value="${num(t.extra)}"></label>
-    <label>צפי שעות שלי<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
-    <label>צפי שעות דקל<input id="fDekel" type="number" step="0.25" value="${num(t.dekelEst)||""}"></label>
-    <label>קונטו שנה קודמת<select id="fConto">${opts(["","יש","אין"],t.conto||"")}</select></label>
-    <label>מי הגיש שנה קודמת<select id="fPrev">${opts(["",...PREVS],t.prevFiler||"")}</select></label>
-    ${(()=>{const c=clientOf(t); const p=[c.bk&&"מנה\"ח: "+c.bk,c.soft&&"תוכנה: "+c.soft,c.rep&&"מייצג: "+c.rep,c.ref&&"הפניה: "+c.ref].filter(Boolean);
-      return (p.length||c.notes)?`<div class="mute" style="grid-column:1/-1">${esc(p.join(" · "))}${c.notes?`<br>הערות לקוח: ${esc(c.notes)}`:""}</div>`:"";})()}
+    <label>צפי שעות<input id="fEst" type="number" step="0.25" value="${num(t.est)}"></label>
     <label class="afterDec" style="${(t.decision||"לקחתי")==="בבדיקה"?"display:none":""}">לו"ז<input id="fSched" type="date" value="${t.sched||""}"></label>
     <label style="grid-column:1/-1">הערה לבדיקת הכדאיות — למה לקחתי או לא לקחתי
       <input id="fCheckNote" value="${esc(t.checkNote||"")}" placeholder="למשל: שכ&quot;ט נמוך ביחס לשעות, או לקוח אסטרטגי"></label>
@@ -1391,6 +1103,7 @@ function viewCal(){
   const planned=monthPlans.reduce((s,p)=>s+num(p.hours),0);
   const actual=DB.time.filter(t=>monthOf(t.date)===cur).reduce((s,t)=>s+num(t.hours),0);
   const cap=businessDays(first,new Date(Y,M-1,lastD))*DB.settings.hoursPerDay;
+  const busyM=(DB.busy||[]).filter(b=>monthOf(b.date)===cur).reduce((s,b)=>s+num(b.hours),0);
   const months=[...new Set([...monthsList(),cur])].sort();
   const cell=dt=>{
     if(!dt) return `<div></div>`;
@@ -1399,6 +1112,7 @@ function viewCal(){
     const dayPlans=DB.plans.filter(p=>p.date===k);
     const chips=`<div class="chips">`+dayPlans.map(p=>{const t=taskById(p.taskId);
       return `<div class="c" title="${esc(t?taskLabel(t):"")}">${esc(t?tName(t):"—")} ${f1(p.hours)}</div>`;}).join("")
+      +busyOn(k).map(b=>`<div class="c busy" title="פרטי מיומן גוגל ${esc(b.start||"")}">פרטי ${f1(b.hours)}</div>`).join("")
       +(ah?`<div class="c done">בפועל ${f1(ah)}</div>`:"")+`</div>`;
     return `<div class="d ${vac?"vac":(inf.off?"off":"")} ${k===iso(today())?"today":""} ${k===S.calDay?"sel":""}" onclick="pickDay('${k}')">
       <div class="n">${dt.getDate()}${off?' <span class="t">🏢</span>':""}${inf.label?` <span class="t">${vac?"חופשה":inf.label}</span>`:""}</div>
@@ -1409,21 +1123,23 @@ function viewCal(){
   <div class="row noprint">
     <label>חודש <select id="calM">${opts(months,cur)}</select></label>
     <button class="ghost" id="calPrev">‹ הקודם</button><button class="ghost" id="calNext">הבא ›</button>
-    <button class="ghost" id="calGsync">📅 סנכרון ליומן גוגל</button>
+    <button class="ghost" id="calGsync">📅 שליחת התכנון ליומן גוגל</button>
+    <button class="ghost" id="calGpull">⬇ משיכת משבצות תפוסות מהיומן</button>
   </div>
   <div class="cards">
     ${card("מתוכנן החודש",`<span style="color:#0d6cb4">${f1(planned)}</span>`,"שעות")}
     ${card("בוצע בפועל",`<span style="color:#31409b">${f1(actual)}</span>`,"שעות")}
+    ${card("פרטי מהיומן",`<span style="color:#5c6875">${f1(busyM)}</span>`,"שעות · ללא שישי/שבת")}
     ${card("קיבולת",f1(cap),businessDays(first,new Date(Y,M-1,lastD))+" ימי עסקים")}
-    ${card("פנוי",f1(cap-planned),"שעות",cap-planned<0?"bad":"")}
+    ${card("פנוי",f1(cap-planned-busyM),"בניכוי מתוכנן ופרטי",cap-planned-busyM<0?"bad":"")}
   </div>
   <div class="legend noprint">
     <span><i style="background:#dff0fd;border:1px solid #a9d6f7"></i>מתוכנן</span>
     <span><i style="background:#e2e7fb;border:1px solid #bcc6f0"></i>בוצע בפועל</span>
+    <span><i style="background:#eef1f4;border:1px solid #d3dae1"></i>פרטי (מיומן גוגל)</span>
     <span><i style="background:#f0ebf8;border:1px solid #d9cfec"></i>חופשה</span>
     <span>🏢 יום משרד</span>
     <span><i style="background:#edf1f6;border:1px solid #cfe0f5"></i>שישי/שבת וחגים</span>
-    <span>🔒 יום פרטי (לא נשלח ליומן גוגל)</span>
   </div>
   <div class="cal" style="margin-top:4px">
     ${["א","ב","ג","ד","ה","ו","ש"].map(d=>`<div class="h">${d}</div>`).join("")}
@@ -1433,16 +1149,17 @@ function viewCal(){
 `;
 }
 function dayPanel(k){
-  const inf=dayInfo(k), ps=DB.plans.filter(p=>p.date===k), ts=DB.time.filter(t=>t.date===k);
+  const inf=dayInfo(k), ps=DB.plans.filter(p=>p.date===k), ts=DB.time.filter(t=>t.date===k), bs=busyOn(k);
   const tasks=takenTasks().filter(isOpen).sort((a,b)=>clientName(a.clientId).localeCompare(clientName(b.clientId),"he"));
   return `<div class="panel">
     <b>${heDate(k)} · ${DAYS[new Date(k).getDay()]}${inf.label?" · "+inf.label:""}</b>
     <div class="row">
       <button class="ghost" id="dOff">${DB.offDays.includes(k)?"ביטול סימון חופשה":"סמן כיום חופשה"}</button>
       <button class="ghost" id="dOffice">${isOfficeDay(k)?"🏢 ביטול יום משרד":"🏢 סמן יום משרד"}</button>
-      <label>🔒 יום פרטי<select id="dPriv">${opts([{v:"",t:"לא"},{v:"full",t:"מלא"},{v:"part",t:"חלקי"}],privOf(k))}</select></label>
-      <span class="mute">מתוכנן ${f1(planHours(k))} · בפועל ${f1(actualOn(k))}</span>
+      <span class="mute">מתוכנן ${f1(planHours(k))} · בפועל ${f1(actualOn(k))}${bs.length?" · פרטי "+f1(busyHours(k)):""}</span>
     </div>
+    ${bs.length?`<div class="mute">פרטי מיומן גוגל: ${bs.map(b=>esc((b.start||"")+" ("+f1(b.hours)+" ש')")).join(" · ")}
+      <button class="mini" onclick="busyClear('${k}')">הסרה</button></div>`:""}
     ${ps.length?table(["משימה","שעה","שעות",""],ps.map(p=>{const t=taskById(p.taskId);
       return [t?taskLabel(t):"—",esc(p.start||"09:00"),f1(p.hours),
         `<button class="mini" onclick="planDone('${p.id}')">בוצע</button>
@@ -1455,10 +1172,8 @@ function dayPanel(k){
       return `<div class="grid2" style="margin-top:6px">
         <label style="grid-column:1/-1">הוספת תכנון<select id="pTask">${opts(av.map(t=>({v:t.id,t:taskLabel(t)+" · נותרו לתכנון "+f1(availableFor(t))})),"")}</select></label>
         <label>שעות<input id="pHours" type="number" step="0.25" max="${availableFor(first)}" value="${f1(Math.min(2,availableFor(first)))}"></label>
-        <label>שעת התחלה<input id="pStart" type="time" value="${(()=>{const ends=DB.plans.filter(p=>p.date===k).map(p=>{
-            const st=(p.start&&/^\d{2}:\d{2}$/.test(p.start))?p.start:"09:00"; const [h,m]=st.split(":").map(Number);
-            return h*60+m+Math.round(num(p.hours)*60);});
-          const base=ends.length?Math.max(...ends):9*60;
+        <label>שעת התחלה<input id="pStart" type="time" value="${(()=>{const used=DB.plans.filter(p=>p.date===k)
+          .reduce((s2,p)=>s2+num(p.hours),0); const base=9*60+Math.round(used*60);
           return pad2(Math.floor(base/60)%24)+":"+pad2(base%60);})()}"></label>
       </div>
       <div class="mute" id="pAvail">אפשר לתכנן עוד ${f1(availableFor(first))} שעות במשימה הזו</div>
@@ -1903,14 +1618,12 @@ function viewClients(){
   const q=(S.clientQ||"").trim();
   const ft=S.clientType||"";
   let list=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he"));
-  if(q) list=list.filter(c=>((c.name||"")+" "+(c.fileNo||"")+" "+(c.notes||"")+" "+(c.bk||"")+" "+(c.soft||"")).indexOf(q)>=0);
+  if(q) list=list.filter(c=>((c.name||"")+" "+(c.fileNo||"")+" "+(c.notes||"")).indexOf(q)>=0);
   if(ft) list=list.filter(c=>(c.type||"")===ft);
-  if(S.clientRep) list=list.filter(c=>(c.rep||"")===S.clientRep);
-  if(S.clientRef) list=list.filter(c=>(c.ref||"")===S.clientRef);
   const rows=list.map(c=>{
     const ts=DB.tasks.filter(t=>t.clientId===c.id), bt=ts.filter(billable);
     const h=ts.reduce((s,t)=>s+taskHours(t.id),0), mine=bt.reduce((s,t)=>s+taskMine(t),0);
-    return [esc(c.name),esc(c.fileNo||"—"),esc(c.type||"—"),esc(c.rep||""),esc(c.ref||""),ts.length,ts.filter(isOpen).length,f1(h),
+    return [esc(c.name),esc(c.fileNo||"—"),esc(c.type||"—"),ts.length,ts.filter(isOpen).length,f1(h),
       f0(bt.reduce((s,t)=>s+num(t.fee),0)),f0(mine),h>0?f0(mine/h):"",
       `<span class="note" onclick="clientNotes('${c.id}')" title="${esc(c.notes||"לחיצה להוספת פרטים")}">${c.notes?esc(c.notes):'<span class="mute">+ פרטים</span>'}</span>`,
       `<button class="mini" onclick="clientNotes('${c.id}')">פרטים נוספים</button>
@@ -1921,8 +1634,6 @@ function viewClients(){
   <div class="row noprint">
     <label>חיפוש<input id="clQ" value="${esc(q)}" placeholder="שם, מספר תיק, פרטים" style="width:190px"></label>
     <label>סוג<select id="clFilterType"><option value="">הכול</option>${opts(["עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],ft)}</select></label>
-    <label>מייצג<select id="clFilterRep"><option value="">הכול</option>${opts(REPS,S.clientRep||"")}</select></label>
-    <label>הפניה<select id="clFilterRef"><option value="">הכול</option>${opts(REFS,S.clientRef||"")}</select></label>
     <button class="ghost" id="clClear">ניקוי</button>
   </div>
   <div class="row noprint"><input id="clNew" placeholder="שם לקוח חדש">
@@ -1930,7 +1641,7 @@ function viewClients(){
     <select id="clType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],"")}</select>
     <button class="act" id="clAdd">הוספה</button></div>
   <div id="clientForm"></div>
-  ${table(["לקוח","מספר תיק","סוג","מייצג","הפניה","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה","פרטים",""],rows,null,[0,2,9,11,12])}`;
+  ${table(["לקוח","מספר תיק","סוג","משימות","פתוחות","שעות","שכ\"ט","החלק שלך","₪ לשעה","פרטים",""],rows,null,[0,2,7,9,10])}`;
 }
 function viewData(){
   const st=dState();
@@ -1944,21 +1655,6 @@ function viewData(){
       <button class="ghost" id="dDiag">בדיקת חיבור</button></div>
     <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
-  </div>
-  <h2>קליטה מהורוביץ</h2>
-  <div class="panel">
-    <div class="row"><label>מקור הקליטה<select id="inMode">${opts([{v:"excel",t:"קובץ אקסל בתיקיית המשרד"},{v:"sheet",t:"גיליון גוגל"}],intakeMode())}</select></label></div>
-    ${intakeMode()==="excel"?`<div class="row"><button class="act" id="inPickXl">בחירת קובץ האקסל</button>
-      <button class="ghost" id="inPull2">משיכה מהורוביץ</button>
-      <span class="mute">${(()=>{let n="";try{n=localStorage.getItem("cpa-xl-name")||"";}catch(e){}return n?"קובץ נבחר: "+esc(n):"עוד לא נבחר קובץ במחשב הזה";})()}</span></div>
-      <div class="mute">בוחרים פעם אחת את קובץ הקליטה מתוך תיקיית המשרד המסונכרנת. האפליקציה רק קוראת אותו ולא כותבת בו. המשיכה מהאקסל עובדת במחשב בלבד; עדכונים מ־Claude נקלטים גם בטלפון.</div>`
-    :DB.settings.intakeId?`<div class="row"><a href="${esc(DB.settings.intakeUrl||"")}" target="_blank" rel="noopener">📄 פתיחת הגיליון</a>
-      <button class="act" id="inPull2">משיכה מהורוביץ</button>
-      <button class="ghost danger" id="inForget">ניתוק הגיליון</button></div>
-      <div class="mute">משתפים את הגיליון עם המשרד מתוך גוגל שיטס (כפתור "שיתוף"), ואפשר להעביר אותו לתיקיית המשרד בדרייב — הקישור לא משתנה.</div>`
-    :`<div class="row"><button class="act" id="inCreate">יצירת גיליון קליטה</button></div>
-      <div class="mute">ייווצר בדרייב שלך גיליון עם רשימות נפתחות. המשרד ממלא שורה לכל משימה, ואת מושכת אותן למערכת לאישור.</div>`}
-    <div id="inMsg" class="mute"></div>
   </div>
   <h2>ייבוא ראשוני מקובץ האקסל</h2>
   <div class="panel">
@@ -2000,7 +1696,6 @@ function viewData(){
     <label>תעריף ברירת מחדל לק"מ<input id="sKm" type="number" step="0.1" value="${DB.settings.kmRate}"></label>
     <label>מייל לשליחת דרישות<input id="sMail" value="${esc(DB.settings.billEmail||"")}"></label>
     <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
-    <label style="min-width:280px">יומן יעד (מזהה יומן גוגל; ריק = היומן הראשי)<input id="sGcalId" value="${esc(DB.settings.gcalId===undefined||DB.settings.gcalId===null?DEFCAL:DB.settings.gcalId)}" style="width:100%"></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -2091,7 +1786,6 @@ window.editCheck=id=>{const t=taskById(id); if(!t)return;
   $("#ckDel").onclick=()=>{ if(!confirm("למחוק את רשומת הבדיקה?"))return;
     DB.tasks=DB.tasks.filter(x=>x.id!==t.id); saveLocal(); renderAll(); showTab("reports"); toast("נמחק");};
   $("#ckSave").onclick=()=>{
-    const prevDec=t.decision;
     t.fee=+$("#ckFee").value||0; t.est=+$("#ckEst").value||0;
     t.decision=$("#ckDec").value; t.checkNote=$("#ckNote").value.trim();
     if(t.decision==="לא לקחתי"){ t.submit="בוטל"; t.noBill=true;
@@ -2099,8 +1793,7 @@ window.editCheck=id=>{const t=taskById(id); if(!t)return;
         t.checkNote=(num(t.est)>0&&Math.round(rr)<DB.settings.target)
           ?("מתחת ליעד השעתי — "+f0(rr)+" ₪ לשעה מול יעד "+f0(DB.settings.target)):"לא נלקח"; } }
     if(!t.checkedAt) t.checkedAt=iso(today());
-    intakeAfterDecision(t,prevDec);
-    saveLocal(); intakeFlush(); renderAll(); showTab("reports"); toast("הבדיקה עודכנה");};
+    saveLocal(); renderAll(); showTab("reports"); toast("הבדיקה עודכנה");};
   box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.billNoBill=id=>{const t=taskById(id); if(!t)return;
   t.noBill=false; saveLocal(); window.quickBill(id);};
@@ -2136,6 +1829,8 @@ window.drill=k=>{S.drill=(S.drill===k?null:k);renderAll();showTab("status");
   const el=$("#drillBox"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
 window.pickDay=k=>{S.calDay=k;S.calMonth=monthOf(k);renderAll();showTab("cal");
   const el=$("#dayPanel"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
+window.busyClear=k=>{ DB.busy=(DB.busy||[]).filter(b=>b.date!==k);
+  saveLocal(); renderAll(); showTab("cal"); toast("המשבצות הפרטיות הוסרו מ"+heDate(k)); };
 window.planDel=id=>{const p=DB.plans.find(x=>x.id===id);
   if(p&&p.evId) gcalDelete(p);
   DB.plans=DB.plans.filter(x=>x.id!==id);saveLocal();renderAll();showTab("cal");};
@@ -2174,16 +1869,11 @@ window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
     <label>שם לקוח<input id="cName" value="${esc(c.name)}"></label>
     <label>מספר תיק<input id="cFile" value="${esc(c.fileNo||"")}"></label>
     <label>סוג<select id="cType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],c.type||"")}</select></label>
-    <label>מנהל/ת חשבונות<input id="cBk" value="${esc(c.bk||"")}"></label>
-    <label>תוכנת הנה"ח<input id="cSoft" value="${esc(c.soft||"")}"></label>
-    <label>מייצג<select id="cRep">${opts(["",...REPS],c.rep||"")}</select></label>
-    <label>הפניה<select id="cRef">${opts(["",...REFS],c.ref||"")}</select></label>
   </div><div class="row"><button class="act" id="cSave">שמירה</button>
     <button class="ghost" id="cCancel">ביטול</button></div></div>`;
   $("#cCancel").onclick=()=>{box.innerHTML="";};
   $("#cSave").onclick=()=>{c.name=$("#cName").value.trim()||c.name;c.fileNo=$("#cFile").value.trim();
-    c.type=$("#cType").value;c.bk=$("#cBk").value.trim();c.soft=$("#cSoft").value.trim();
-    c.rep=$("#cRep").value;c.ref=$("#cRef").value;saveLocal();renderAll();showTab("clients");toast("הלקוח עודכן");};
+    c.type=$("#cType").value;saveLocal();renderAll();showTab("clients");toast("הלקוח עודכן");};
   box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.S=S;
 function wireTaskForm(t){
@@ -2221,23 +1911,21 @@ function wireTaskForm(t){
     $("#fSave").click();
   };
   $("#fSave").onclick=()=>{
-    const prevDec=t&&t.id?(taskById(t.id)||t).decision:null;
     const dec=$("#fDec").value; let cid=$("#fClient").value, prospect=(t&&t.prospect)||"";
     if(cid==="__new"){
       const nm=($("#fNewClient").value||"").trim();
       if(!nm){toast("צריך שם לקוח");return;}
-      if(dec==="לקחתי"){const c=newClientFrom(nm,t);cid=c.id;prospect="";}
+      if(dec==="לקחתי"){const c={id:uid(),name:nm,type:"",fileNo:""};DB.clients.push(c);cid=c.id;prospect="";}
       else {cid="";prospect=nm;}
     } else if(cid&&prospect) prospect="";
     if(!cid&&!prospect){toast("צריך לבחור לקוח או להזין שם");return;}
-    if(!cid&&prospect&&dec==="לקחתי"){const c=newClientFrom(prospect.trim(),t);cid=c.id;prospect="";}
+    if(!cid&&prospect&&dec==="לקחתי"){const c={id:uid(),name:prospect,type:"",fileNo:""};DB.clients.push(c);cid=c.id;prospect="";}
     const checkMode=dec==="בבדיקה"||dec==="לא לקחתי"||S.fromCheck===true||(t&&t.decision==="בבדיקה");
     const o={id:(t&&t.id)||uid(),clientId:cid,prospect:prospect,year:+$("#fYear").value||"",
       checkedAt:(t&&t.checkedAt)||(checkMode?iso(today()):null),
       type:$("#fType").value,work:$("#fWork").value,submit:$("#fSub").value,decision:$("#fDec").value,noBill:$("#fNoBill").value==="no",
       fee:+$("#fFee").value||0,extra:+$("#fExtra").value||0,est:+$("#fEst").value||0,
-      checkNote:$("#fCheckNote").value,sched:$("#fSched").value||null,notes:$("#fNotes").value,
-      dekelEst:+$("#fDekel").value||0,conto:$("#fConto").value,prevFiler:$("#fPrev").value};
+      checkNote:$("#fCheckNote").value,sched:$("#fSched").value||null,notes:$("#fNotes").value};
     const isCheck=dec==="בבדיקה"||dec==="לא לקחתי";
     const dup=!isCheck&&DB.tasks.find(x=>x.id!==o.id&&x.clientId&&x.clientId===o.clientId&&
       String(x.year)===String(o.year)&&x.type===o.type&&x.decision!=="לא לקחתי"&&x.decision!=="בבדיקה");
@@ -2250,8 +1938,7 @@ function wireTaskForm(t){
     }
     const i=DB.tasks.findIndex(x=>x.id===o.id);
     if(i>=0) DB.tasks[i]=Object.assign(DB.tasks[i],o); else DB.tasks.push(o);
-    intakeAfterDecision(taskById(o.id),prevDec);
-    saveLocal(); intakeFlush();
+    saveLocal();
     if(dec==="לקחתי"&&(!t||!t.id||(t.decision==="בבדיקה"))){
       renderAll(); showTab("tasks");
       const box=$("#taskForm"); const saved=taskById(o.id);
@@ -2325,10 +2012,10 @@ function wireBillForm(b,free){
 function wire(){
   const el=id=>$("#"+id);
   const fmap={fltStatus:"status",fltClient:"client",fltDecision:"decision",fltYear:"year",
-    fltType:"type",fltWork:"work",fltBill:"bill",fltRep:"rep",fltRef:"ref"};
+    fltType:"type",fltWork:"work",fltBill:"bill"};
   Object.entries(fmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.tf[key]=ev.target.value;renderAll();showTab("tasks");};});
   if(el("fltQ")) el("fltQ").onchange=ev=>{S.tf.q=ev.target.value;renderAll();showTab("tasks");};
-  if(el("fltClear")) el("fltClear").onclick=()=>{S.tf={status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:"",rep:"",ref:""};renderAll();showTab("tasks");};
+  if(el("fltClear")) el("fltClear").onclick=()=>{S.tf={status:"פתוחים",client:"",year:"",type:"",decision:"",work:"",bill:"",q:""};renderAll();showTab("tasks");};
   const sel=()=>S.selTask;
   if(el("selEdit")) el("selEdit").onclick=()=>window.editTask(sel());
   if(el("selNote")) el("selNote").onclick=()=>window.editNote(sel());
@@ -2351,17 +2038,12 @@ function wire(){
   const shiftMonth=n=>{const cur=S.calMonth||iso(today()).slice(0,7);const[Y,M]=cur.split("-").map(Number);
     const dd=new Date(Y,M-1+n,1);S.calMonth=iso(dd).slice(0,7);S.calDay=null;renderAll();showTab("cal");};
   if(el("calGsync")) el("calGsync").onclick=()=>gcalSyncMonth(S.calMonth||iso(today()).slice(0,7));
+  if(el("calGpull")) el("calGpull").onclick=()=>gcalPull(S.calMonth||iso(today()).slice(0,7));
   if(el("calPrev")) el("calPrev").onclick=()=>shiftMonth(-1);
   if(el("calNext")) el("calNext").onclick=()=>shiftMonth(1);
   if(el("dOff")) el("dOff").onclick=()=>{const k=S.calDay;
-    if(DB.offDays.includes(k)) DB.offDays=DB.offDays.filter(x=>x!==k); else { DB.offDays.push(k); if(DB.privDays) delete DB.privDays[k]; }
+    if(DB.offDays.includes(k)) DB.offDays=DB.offDays.filter(x=>x!==k); else DB.offDays.push(k);
     saveLocal();renderAll();showTab("cal");};
-  if(el("dPriv")) el("dPriv").onchange=e=>{const k=S.calDay, v=e.target.value;
-    DB.privDays=DB.privDays||{};
-    if(v){ DB.privDays[k]=v; DB.offDays=DB.offDays.filter(x=>x!==k); } else delete DB.privDays[k];
-    saveLocal();renderAll();showTab("cal");
-    toast(v?(v==="full"?"יום פרטי מלא · לא נספר בשעות הפנויות · לא נשלח ליומן גוגל":"יום פרטי חלקי · לא נשלח ליומן גוגל"):"הסימון הוסר",4000);
-    if(v) privCleanup(k);};
   if(el("dOffice")) el("dOffice").onclick=()=>{const k=S.calDay;
     const ents=DB.time.filter(x=>x.date===k);
     if(!ents.length){toast("אין רישומי שעות ביום הזה");return;}
@@ -2495,16 +2177,7 @@ function wire(){
   if(el("xlsxOut")) el("xlsxOut").onclick=exportXlsx;
   if(el("clQ")) el("clQ").onchange=e=>{S.clientQ=e.target.value;renderAll();showTab("clients");};
   if(el("clFilterType")) el("clFilterType").onchange=e=>{S.clientType=e.target.value;renderAll();showTab("clients");};
-  if(el("clFilterRep")) el("clFilterRep").onchange=e=>{S.clientRep=e.target.value;renderAll();showTab("clients");};
-  if(el("clFilterRef")) el("clFilterRef").onchange=e=>{S.clientRef=e.target.value;renderAll();showTab("clients");};
-  if(el("clClear")) el("clClear").onclick=()=>{S.clientQ="";S.clientType="";S.clientRep="";S.clientRef="";renderAll();showTab("clients");};
-  if(el("inPull")) el("inPull").onclick=()=>intakePull();
-  if(el("inPull2")) el("inPull2").onclick=()=>intakePull();
-  if(el("inCreate")) el("inCreate").onclick=()=>intakeCreate();
-  if(el("inPickXl")) el("inPickXl").onclick=()=>xlPick();
-  if(el("inMode")) el("inMode").onchange=e=>{DB.settings.intakeMode=e.target.value;saveLocal();renderAll();showTab("data");};
-  if(el("inForget")) el("inForget").onclick=()=>{ if(!confirm("לנתק את הגיליון מהמערכת? הגיליון עצמו לא יימחק."))return;
-    delete DB.settings.intakeId; delete DB.settings.intakeUrl; saveLocal(); renderAll(); showTab("data"); toast("הגיליון נותק");};
+  if(el("clClear")) el("clClear").onclick=()=>{S.clientQ="";S.clientType="";renderAll();showTab("clients");};
   if(el("clAdd")) el("clAdd").onclick=()=>{const n=$("#clNew").value.trim();if(!n)return;
     DB.clients.push({id:uid(),name:n,type:($("#clType")||{}).value||"",fileNo:$("#clNum").value.trim()});
     saveLocal();renderAll();showTab("clients");toast("לקוח נוסף");};
@@ -2545,9 +2218,7 @@ function wire(){
     DB.settings.share=+$("#sShare").value||1/3;DB.settings.target=+$("#sTarget").value||200;
     DB.settings.targetNext=+$("#sNext").value||250;DB.settings.hoursPerDay=+$("#sHpd").value||7;
     DB.settings.kmRate=+$("#sKm").value||1;DB.settings.billEmail=$("#sMail").value.trim();DB.settings.inclGeneral=$("#sGen").value==="yes";
-    DB.settings.gcal=$("#sGcal").value==="yes";
-    if($("#sGcalId")) DB.settings.gcalId=$("#sGcalId").value.trim();
-    saveLocal();renderAll();showTab("data");toast("ההגדרות נשמרו");};
+    saveLocal();renderAll();toast("ההגדרות נשמרו");};
   if(el("jsonOut")) el("jsonOut").onclick=()=>{
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
     a.download="cpa-backup-"+iso(today())+".json";a.click();};
@@ -2595,7 +2266,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.64.0";
+const VER="3.60.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
