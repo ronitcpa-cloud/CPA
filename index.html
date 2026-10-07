@@ -906,11 +906,22 @@ async function gcalUpsert(p){
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
   try{
     const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
-    const r=await gFetch(p.evId?(base+"/"+p.evId):base,
+    let r=await calFetch(p.evId?(base+"/"+p.evId):base,
       {method:p.evId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal();}
-  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} }
+    if(r.status===404||r.status===410){ delete p.evId; r=await calFetch(base,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); }
+    if(!r.ok) return await calErr(r);
+    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal(); return {ok:true};}
+    return {ok:false,err:"תשובה לא צפויה מיומן גוגל"};
+  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} return {ok:false,err:e.message==="auth"?"צריך להתחבר מחדש לגוגל":e.message}; }
 }
+async function calFetch(url,o){
+  if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; throw new Error("auth"); }
+  o=o||{}; o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
+  const r=await fetch(url,o); if(r.status===401){ drive.token=null; throw new Error("auth"); } return r; }
+async function calErr(r){ let m=""; try{ const j=await r.json(); m=(j.error&&j.error.message)||""; }catch(e){}
+  if(r.status===403&&/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return {ok:false,err:"צריך להפעיל את Google Calendar API בפרויקט בגוגל קלאוד (פעם אחת)",fatal:true};
+  if(r.status===403&&/insufficient|scope/i.test(m)) return {ok:false,err:"חסרה הרשאת יומן — להתחבר מחדש ולסמן את הרשאת היומן",fatal:true,scope:true};
+  return {ok:false,err:"שגיאת יומן גוגל "+r.status+(m?" · "+m:""),fatal:r.status===403}; }
 async function privCleanup(k){
   const ps=DB.plans.filter(p=>p.date===k&&p.evId); if(!ps.length) return;
   if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) privCleanup(k); },false); return; }
@@ -927,8 +938,11 @@ async function gcalSyncMonth(m){
   if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
   if(!drive.token||(drive.exp&&Date.now()>drive.exp)){ drive.token=null; gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
   const all=DB.plans.filter(p=>monthOf(p.date)===m), list=all.filter(p=>!privOf(p.date));
-  for(const p of list){ await gcalUpsert(p); }
-  toast("סונכרנו "+list.length+" משבצות ליומן"+(all.length>list.length?" · "+(all.length-list.length)+" בימים פרטיים לא נשלחו":""));
+  let ok=0, err="";
+  for(const p of list){ const r=await gcalUpsert(p); if(r&&r.ok) ok++; else if(r){ err=r.err; if(r.scope){ drive.token=null; gAuth(g=>{ if(g) gcalSyncMonth(m); },false,true); return; } if(r.fatal) break; } }
+  const priv=all.length>list.length?" · "+(all.length-list.length)+" בימים פרטיים לא נשלחו":"";
+  if(err) toast("הסנכרון ליומן נכשל: "+err+(ok?" · "+ok+" משבצות כן נשלחו":"")+priv,9000);
+  else toast("סונכרנו "+ok+" משבצות ליומן גוגל"+priv,4000);
 }
 
 /* ============ save reports to a folder ============ */
@@ -2575,7 +2589,7 @@ function setHdr(){
   $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
 }
-const VER="3.63.1";
+const VER="3.63.2";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
