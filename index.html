@@ -94,6 +94,10 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .pd-sub{font-size:12px;color:var(--ink-2);margin-top:3px}
 .pd-meta{text-align:left;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
 .pd-title{font-size:19px;font-weight:800;color:var(--accent-d);margin-bottom:3px}
+.ed{border-bottom:1px dashed transparent;outline:none;cursor:text;border-radius:3px;padding:0 2px}
+.ed:hover{border-bottom-color:var(--accent);background:#f6fbff}
+.ed:focus{border-bottom-color:var(--accent);background:#eaf4fe}
+@media print{.ed{border:none!important;background:none!important;padding:0}}
 .pd-to{margin:14px 0 10px;font-size:14px;line-height:1.7}
 .pd-tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px}
 .pd-tbl th{background:var(--accent-2);color:var(--accent-d);text-align:right;padding:7px 9px;
@@ -1085,7 +1089,8 @@ function payDoc(m,clientId,detail,sel){
   return `<div class="paydoc">
     <div class="pd-top">
       <div class="pd-biz">
-        <div class="pd-name">${esc(S0.bizName||"רונית פינץ ערוסי, רו״ח")}</div>
+        <div class="pd-name"><span class="ed" id="edName" contenteditable="true"
+          data-k="bizName" title="לחיצה לעריכה">${esc(S0.bizName||"רונית פינץ ערוסי, רו״ח")}</span></div>
         <div class="pd-sub">${[S0.bizId?"ע.מ "+esc(S0.bizId):"",esc(S0.bizAddr||""),
           esc(S0.bizPhone||""),esc(S0.bizMail||"")].filter(Boolean).join(" · ")}</div>
       </div>
@@ -1095,7 +1100,8 @@ function payDoc(m,clientId,detail,sel){
         <div>תאריך ${d.toLocaleDateString("he-IL")}</div>
       </div>
     </div>
-    <div class="pd-to"><b>לכבוד:</b> ${esc(S0.payTo||"")}<br>
+    <div class="pd-to"><b>לכבוד:</b> <span class="ed" id="edTo" contenteditable="true"
+      data-k="payTo" title="לחיצה לעריכה">${esc(S0.payTo||"— שם המשרד —")}</span><br>
       <b>בגין:</b> שירותי ראיית חשבון — ${esc(heMonth)}${clientId?" · "+esc(clientName(clientId)):""}</div>
     ${body}
     <div class="pd-sum">
@@ -2710,6 +2716,11 @@ function wire(){
   if(el("docC")) el("docC").onchange=e=>{S.docC=e.target.value;renderAll();showTab("reports");};
   if(el("bDoc")) el("bDoc").onclick=()=>{ S.rep="doc"; S.docM=S.billMonth||defaultMonth();
     S.docC=""; S.docSel={}; renderAll(); showTab("reports"); };
+  document.querySelectorAll("#s-reports .ed[data-k]").forEach(e=>{
+    e.onblur=()=>{ const v=(e.textContent||"").trim();
+      if(v===String(DB.settings[e.dataset.k]||"")) return;
+      DB.settings[e.dataset.k]=v; saveLocal(); toast("נשמר"); };
+    e.onkeydown=ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); e.blur(); } };});
   if(el("docDetOn")) el("docDetOn").onclick=()=>{S.docDet=true;renderAll();showTab("reports");};
   if(el("docDetOff")) el("docDetOff").onclick=()=>{S.docDet=false;renderAll();showTab("reports");};
   document.querySelectorAll("#s-reports .pk input[data-bid]").forEach(c=>c.onchange=()=>{
@@ -2819,7 +2830,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.67.0";
+const VER="3.68.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
