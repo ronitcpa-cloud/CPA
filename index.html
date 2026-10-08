@@ -87,6 +87,47 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .cal .d .c.done{background:#e2e7fb;color:#31409b;border-color:#bcc6f0}
 .cal .d .c.busy{background:#eef1f4;color:#5c6875;border-color:#d3dae1}
 .cal .d.sel{outline:2px solid var(--accent)}
+.paydoc{background:#fff;border:1px solid var(--line);border-radius:10px;padding:22px 26px;max-width:860px;margin:8px auto;color:var(--ink)}
+.pd-top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;
+ border-bottom:3px solid var(--ink);padding-bottom:10px}
+.pd-name{font-size:21px;font-weight:800;letter-spacing:-.3px}
+.pd-sub{font-size:12px;color:var(--ink-2);margin-top:3px}
+.pd-meta{text-align:left;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.pd-title{font-size:19px;font-weight:800;color:var(--accent-d);margin-bottom:3px}
+.pd-to{margin:14px 0 10px;font-size:14px;line-height:1.7}
+.pd-tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px}
+.pd-tbl th{background:var(--accent-2);color:var(--accent-d);text-align:right;padding:7px 9px;
+ border-bottom:1.5px solid #a9d6f7;font-size:12.5px;position:static}
+.pd-tbl td{padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top;white-space:normal}
+.pd-tbl .n{text-align:left;white-space:nowrap}.pd-tbl .c{text-align:center;width:58px}
+.pd-sum{margin:14px 0 0;margin-right:auto;width:min(330px,100%);font-size:14px}
+.pd-sum>div{display:flex;justify-content:space-between;gap:12px;padding:5px 2px;border-bottom:1px solid var(--line)}
+.pd-sum>div.big{border-bottom:none;border-top:2px solid var(--ink);margin-top:3px;padding-top:8px;
+ font-size:17px;font-weight:800;color:var(--accent-d)}
+.pd-pay{margin-top:16px;background:var(--accent-2);border:1px solid #a9d6f7;border-radius:8px;
+ padding:10px 13px;font-size:13.5px;line-height:1.75}
+.pd-terms{margin-top:12px;font-size:13px;color:var(--ink-2);line-height:1.8}
+.pd-sign{margin-top:22px;font-size:13.5px;line-height:1.9}
+@media print{ .paydoc{border:none;padding:0;margin:0;max-width:none}
+  .pd-tbl th{background:#e2f1fd!important;color:#0d6cb4!important}
+  .pd-pay{background:#eaf4fe!important} }
+@media (max-width:680px){ .paydoc{padding:14px 13px}
+  .pd-top{flex-direction:column;gap:8px}.pd-meta{text-align:right}
+  .pd-name{font-size:17px}.pd-title{font-size:16px}.pd-tbl{font-size:12px} }
+.picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px}
+.pk{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:7px;
+ padding:4px 8px;font-size:12.5px;background:#fff;cursor:pointer;color:var(--ink)}
+.pk.on{border-color:var(--accent);background:#f2f9ff;font-weight:600}
+.comps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px;margin-top:6px}
+.comp{border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:#fbfdff}
+.comp.on{border-color:var(--accent);background:#f2f9ff;box-shadow:0 0 0 1px var(--accent-2) inset}
+.comp .hd{display:block;font-weight:700;color:var(--ink);font-size:13.5px;cursor:pointer}
+.comp .in{display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-top:5px}
+.comp .in label{display:flex;flex-direction:column;gap:2px;font-size:12px}
+.comp .in input[type=number]{width:92px}
+.comp label.vat{flex-direction:row;align-items:center;gap:3px;color:var(--ink-2);font-size:12px}
+.comp:not(.on) .in{opacity:.45}
+.tot{font-weight:800;font-size:15px;color:var(--ink)}
 .chip{border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:999px;
  padding:4px 11px;font:inherit;font-size:13px;cursor:pointer}
 .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
@@ -247,7 +288,10 @@ function decryptStr(blob,key){
 /* ============ data ============ */
 const LS="cpa-system-v2";
 let DB={clients:[],tasks:[],time:[],bills:[],travel:[],plans:[],offDays:[],officeDates:[],busy:[],
-  settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},
+  settings:{share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false,vat:18,
+    bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',bizMail:'ronit.cpa@gmail.com',
+    payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,
+    bank:{name:'ONE ZERO',bank:'18',branch:'001',acc:'228700682',owner:'רונית מלכה ערוסי'}},
   updated:null};
 const DECIDE=["בבדיקה","לקחתי","לא לקחתי"];
 const TYPES=["דוח שנתי יחיד","דוח שנתי חברה","הצהרת הון","החזר מס","טיפול שוטף","אחר"];
@@ -257,7 +301,14 @@ function saveLocal(){DB.updated=Date.now();
   try{const txt=JSON.stringify(DB);
     localStorage.setItem(LS,SKEY?("ENC1:"+encryptStr(txt,SKEY)):txt);}catch(e){}
   if(drive.auto&&drive.token) driveSave(true);}
+const SETDEF={vat:18,bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',
+  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10};
+const BANKDEF={name:'ONE ZERO',bank:'18',branch:'001',acc:'228700682',owner:'רונית מלכה ערוסי'};
 function migrate(){
+  DB.settings=DB.settings||{};
+  Object.keys(SETDEF).forEach(k=>{ if(DB.settings[k]==null||DB.settings[k]==="") DB.settings[k]=SETDEF[k]; });
+  DB.settings.bank=Object.assign({},BANKDEF,DB.settings.bank||{});
+  DB.busy=DB.busy||[];
   let moved=0;
   DB.clients.forEach(c=>{
     if(c.fileNo) return;
@@ -271,7 +322,10 @@ function migrate(){
 function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
   if(s){const d=JSON.parse(s);DB=Object.assign(DB,d);
-  DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false},d.settings||{});
+  DB.settings=Object.assign({share:1/3,target:200,targetNext:250,hoursPerDay:7,kmRate:1,inclGeneral:false,billEmail:'dekel@homek.co.il',gcal:false,vat:18,
+    bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',bizMail:'ronit.cpa@gmail.com',
+    payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,
+    bank:{name:'ONE ZERO',bank:'18',branch:'001',acc:'228700682',owner:'רונית מלכה ערוסי'}},d.settings||{});
   DB.plans=DB.plans||[];DB.offDays=DB.offDays||[];DB.officeDates=DB.officeDates||[];DB.busy=DB.busy||[];
   (DB.officeDates||[]).forEach(d=>{DB.time.filter(x=>x.date===d).forEach(x=>{x.office=true;});});
   DB.tasks.forEach(t=>{if(!t.decision)t.decision="לקחתי";}); migrate();} return true;}catch(e){return false;}}
@@ -329,10 +383,33 @@ const PAYWAYS=["העברה בנקאית","צ׳ק","אשראי","מזומן","ב�
 function billHours(b){ if(b.hours!=null&&b.hours!=="") return num(b.hours);
   return b.taskId?taskHours(b.taskId):0; }
 function billRateAmount(b){return num(b.rate)*billHours(b);}
-function billAmount(b){ if(b.amount!=null&&b.amount!=="") return num(b.amount);
-  return num(b.fee)*DB.settings.share+num(b.extra)+billRateAmount(b);}
+const r2=n=>Math.round(n*100)/100;
+const vatRate=b=>b&&b.vatRate!=null?num(b.vatRate):0;
+/* רכיבי הדרישה. דרישות ישנות (ללא b.use) ממשיכות להתנהג בדיוק כמו קודם. */
+function billComp(b){
+  if(!b) return [];
+  if(!b.use){
+    if(b.amount!=null&&b.amount!=="") return [{k:"other",label:"סכום",amount:num(b.amount),vat:false}];
+    return [{k:"share",label:'חלקי — שליש משכ"ט המשרד',amount:num(b.fee)*DB.settings.share,vat:false},
+            {k:"extra",label:'תוספת לשכר טרחה',amount:num(b.extra),vat:false},
+            {k:"rate", label:'לפי שעות',amount:billRateAmount(b),vat:false}].filter(x=>x.amount);
+  }
+  const V=b.vat||{}, U=b.use, out=[];
+  if(U.share) out.push({k:"share",label:'חלקי — שליש משכ"ט משרד של '+f0(b.fee)+' ₪',
+    amount:r2(num(b.fee)*DB.settings.share),vat:V.share!==false});
+  if(U.rate) out.push({k:"rate",label:'לפי שעות — '+f1(billHours(b))+' שעות × '+f0(b.rate)+' ₪',
+    amount:r2(billRateAmount(b)),vat:V.rate!==false});
+  if(U.extra) out.push({k:"extra",label:'תוספת לשכר טרחה',amount:num(b.extra),vat:V.extra!==false});
+  if(U.other) out.push({k:"other",label:'שכר טרחה מלא',amount:num(b.other),vat:V.other!==false});
+  return out;
+}
+const billPart=(b,k)=>{const c=billComp(b).find(x=>x.k===k);return c?c.amount:0;};
+function billAmount(b){return r2(billComp(b).reduce((s,x)=>s+x.amount,0));}
+function billVatBase(b){return r2(billComp(b).filter(x=>x.vat).reduce((s,x)=>s+x.amount,0));}
+function billVat(b){return r2(billVatBase(b)*vatRate(b)/100);}
+function billTotal(b){return r2(billAmount(b)+billVat(b));}
 const billPaid=b=>(b.payments||[]).reduce((s,p)=>s+num(p.amount),0);
-const billDue=b=>Math.round((billAmount(b)-billPaid(b))*100)/100;
+const billDue=b=>r2(billTotal(b)-billPaid(b));
 function billStatus(b){const d=billDue(b);
   if(billPaid(b)<=0) return "פתוח";
   return d<=0.01?"שולם":"שולם חלקית";}
@@ -361,14 +438,20 @@ function defaultMonth(){
 }
 function monthSummary(m){
   const bills=DB.bills.filter(b=>b.month===m);
-  const fee=bills.reduce((s,b)=>s+num(b.fee),0), extra=bills.reduce((s,b)=>s+num(b.extra),0);
-  const byRate=bills.reduce((s,b)=>s+billRateAmount(b),0);
-  const hours=bills.reduce((s,b)=>s+billHours(b),0);
+  const feeOf=b=>b.use?(b.use.share?num(b.fee):0):num(b.fee);
+  const fee=bills.reduce((s,b)=>s+feeOf(b),0);
+  const extra=bills.reduce((s,b)=>s+billPart(b,"extra"),0);
+  const byRate=bills.reduce((s,b)=>s+billPart(b,"rate"),0);
+  const other=bills.reduce((s,b)=>s+billPart(b,"other"),0);
+  const hours=bills.reduce((s,b)=>s+(b.use&&!b.use.rate?0:billHours(b)),0);
   const paid=bills.reduce((s,b)=>s+billPaid(b),0);
+  const vat=bills.reduce((s,b)=>s+billVat(b),0);
+  const gross=bills.reduce((s,b)=>s+billTotal(b),0);
   const mine=bills.reduce((s,b)=>s+billAmount(b),0), travel=monthTravel(m);
   const time=DB.time.filter(t=>monthOf(t.date)===m);
   const thours=time.reduce((s,t)=>s+num(t.hours),0), gen=generalHours(time);
-  return {m,fee,extra,byRate,billHours:hours,paid,mine,travel,due:mine+travel,hours:thours,gen,bills};
+  return {m,fee,extra,byRate,other,vat,gross,billHours:hours,paid,mine,travel,
+    due:mine+travel,dueGross:gross+travel,hours:thours,gen,bills};
 }
 
 
@@ -950,6 +1033,74 @@ async function saveReportToFolder(){
     }
   }
 }
+
+/* ============ מסמך דרישת תשלום רשמי ============ */
+function docNo(m){ return String(m||"").replace("-","")+"-01"; }
+function payDoc(m,clientId,detail,sel){
+  const S0=DB.settings, B=S0.bank||{};
+  let bills=DB.bills.filter(b=>b.month===m);
+  if(clientId) bills=bills.filter(b=>(b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId)===clientId);
+  if(sel) bills=bills.filter(b=>sel[b.id]!==false);
+  const lines=[];
+  bills.forEach(b=>{
+    const cid=b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId;
+    const t=b.taskId?taskById(b.taskId):null;
+    billComp(b).forEach(c=>lines.push({who:cid?clientName(cid):"—",
+      what:(t?(t.type+" "+(t.year||"")):(b.year||""))+" · "+c.label,
+      amount:c.amount,vat:c.vat,rate:vatRate(b)}));
+  });
+  const trav=clientId?0:monthTravel(m);
+  if(trav>0) lines.push({who:"—",what:"החזר נסיעות",amount:r2(trav),vat:false,rate:0});
+  const net=r2(lines.reduce((s,x)=>s+x.amount,0));
+  const vat=r2(lines.reduce((s,x)=>s+(x.vat?x.amount*num(x.rate)/100:0),0));
+  const tot=r2(net+vat);
+  const d=new Date(), due=new Date(d.getTime()+num(S0.payDays||10)*86400000);
+  const heMonth=(()=>{const [Y,M]=String(m).split("-");
+    return ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"][+M-1]+" "+Y;})();
+  let body;
+  if(detail===false){
+    body=`<table class="pd-tbl"><thead><tr><th>פירוט</th><th class="n">סכום ₪</th></tr></thead><tbody>
+      <tr><td>שירותי ראיית חשבון — ${esc(heMonth)}${clientId?" · "+esc(clientName(clientId)):""}</td>
+        <td class="n">${f0(net)}</td></tr></tbody></table>`;
+  } else {
+    const row=x=>`<tr><td>${esc(x.who)}</td><td>${esc(x.what)}</td>
+      <td class="n">${f0(x.amount)}</td><td class="c">${x.vat?"כן":"לא"}</td></tr>`;
+    body=`<table class="pd-tbl"><thead><tr><th>לקוח</th><th>פירוט</th><th class="n">סכום ₪</th><th class="c">מע"מ</th></tr></thead>
+      <tbody>${lines.length?lines.map(row).join(""):'<tr><td colspan="4">אין שורות לתקופה זו</td></tr>'}</tbody></table>`;
+  }
+  return `<div class="paydoc">
+    <div class="pd-top">
+      <div class="pd-biz">
+        <div class="pd-name">${esc(S0.bizName||"רונית פינץ ערוסי, רו״ח")}</div>
+        <div class="pd-sub">${[S0.bizId?"ע.מ "+esc(S0.bizId):"",esc(S0.bizAddr||""),
+          esc(S0.bizPhone||""),esc(S0.bizMail||"")].filter(Boolean).join(" · ")}</div>
+      </div>
+      <div class="pd-meta">
+        <div class="pd-title">דרישת תשלום</div>
+        <div>מס׳ ${esc(docNo(m))}</div>
+        <div>תאריך ${d.toLocaleDateString("he-IL")}</div>
+      </div>
+    </div>
+    <div class="pd-to"><b>לכבוד:</b> ${esc(S0.payTo||"")}<br>
+      <b>בגין:</b> שירותי ראיית חשבון — ${esc(heMonth)}${clientId?" · "+esc(clientName(clientId)):""}</div>
+    ${body}
+    <div class="pd-sum">
+      <div><span>סה"כ לפני מע"מ</span><b>${f0(net)} ₪</b></div>
+      <div><span>מע"מ ${f1(num(S0.vat))}%</span><b>${f0(vat)} ₪</b></div>
+      <div class="big"><span>סה"כ לתשלום</span><b>${f0(tot)} ₪</b></div>
+    </div>
+    <div class="pd-pay">
+      <b>פרטי תשלום — העברה בנקאית</b>
+      <div>בנק ${esc(B.name||"")} (${esc(B.bank||"")}) · סניף ${esc(B.branch||"")} · חשבון ${esc(B.acc||"")}</div>
+      <div>על שם: ${esc(B.owner||"")}</div>
+    </div>
+    <div class="pd-terms">
+      יש לשלם תוך ${num(S0.payDays||10)} ימים, עד ${due.toLocaleDateString("he-IL")}.<br>
+      חשבונית מס תישלח לאחר קבלת התשלום.
+    </div>
+    <div class="pd-sign">בכבוד רב,<br><b>רונית פינץ ערוסי, רו״ח</b></div>
+  </div>`;
+}
 /* ============ shared ui ============ */
 function card(k,v,n,cls,drill){
   return `<div class="card" ${drill?`style="cursor:pointer" onclick="drill('${drill}')"`:""}>
@@ -1473,7 +1624,14 @@ function viewBills(){
 function billForm(b,free){
   const open=DB.tasks.filter(t=>!billedTask(t.id)||((b&&b.taskId)===t.id));
   b=b||{id:"",month:S.billMonth||defaultMonth(),taskId:"",clientId:"",year:"",
-    date:iso(today()),fee:0,extra:0,amount:"",note:""};
+    date:iso(today()),fee:0,extra:0,other:0,amount:"",note:"",
+    use:{share:true,rate:false,extra:false,other:false},
+    vat:{share:true,rate:true,extra:true,other:true},vatRate:num(DB.settings.vat)};
+  const U=b.use||{share:(b.amount==null||b.amount===""),rate:num(b.rate)>0,extra:num(b.extra)>0,
+    other:!(b.amount==null||b.amount==="")};
+  const V=b.vat||{share:true,rate:true,extra:true,other:true};
+  const VR=b.vatRate!=null?num(b.vatRate):num(DB.settings.vat);
+  const vchk=(k,on)=>`<label class="vat"><input type="checkbox" id="bv_${k}" ${on!==false?"checked":""}> חייב מע"מ</label>`;
   return `<div class="panel"><div class="grid2">
     ${free?`<label>לקוח<select id="bClient">${clientOpts(b.clientId)}</select></label>
       <label>שנה<input id="bYear" value="${esc(b.year||"")}"></label>`
@@ -1481,21 +1639,38 @@ function billForm(b,free){
         ${opts(open.map(t=>({v:t.id,t:taskLabel(t)+" · "+t.submit})),b.taskId)}</select></label>`}
     <label>חודש דרישה<select id="bMonth">${opts(monthsList(),b.month)}</select></label>
     <label>תאריך<input id="bDate" type="date" value="${b.date||""}"></label>
-    <label>שכ"ט משרד<input id="bFee" type="number" value="${num(b.fee)}"></label>
-    <label>שכ"ט נוסף שלך<input id="bExtra" type="number" value="${num(b.extra)}"></label>
-    <label>תעריף לשעה (לא חובה)<input id="bRate" type="number" value="${b.rate==null?"":b.rate}"></label>
-    <label>שעות בפועל<input id="bHours" type="number" step="0.25" value="${b.hours==null||b.hours===""?(b.taskId?f1(taskHours(b.taskId)):""):b.hours}"></label>
-    <label>סכום ידני (דורס הכול)<input id="bAmt" type="number" value="${b.amount==null?"":b.amount}"></label>
     <label style="grid-column:1/-1">הערה<input id="bNote" value="${esc(b.note||"")}"></label>
-  </div><div class="row">
+  </div>
+  <div class="comps">
+    <div class="comp ${U.share?"on":""}">
+      <label class="hd"><input type="checkbox" id="bu_share" ${U.share?"checked":""}> חלקי — שליש משכ"ט המשרד</label>
+      <div class="in"><label>שכ"ט המשרד<input id="bFee" type="number" value="${num(b.fee)}"></label>
+        ${vchk("share",V.share)}</div></div>
+    <div class="comp ${U.rate?"on":""}">
+      <label class="hd"><input type="checkbox" id="bu_rate" ${U.rate?"checked":""}> לפי שעות</label>
+      <div class="in"><label>תעריף לשעה<input id="bRate" type="number" value="${b.rate==null?"":b.rate}"></label>
+        <label>שעות בפועל<input id="bHours" type="number" step="0.25" value="${b.hours==null||b.hours===""?(b.taskId?f1(taskHours(b.taskId)):""):b.hours}"></label>
+        ${vchk("rate",V.rate)}</div></div>
+    <div class="comp ${U.extra?"on":""}">
+      <label class="hd"><input type="checkbox" id="bu_extra" ${U.extra?"checked":""}> תוספת לשכר טרחה</label>
+      <div class="in"><label>סכום<input id="bExtra" type="number" value="${num(b.extra)}"></label>
+        ${vchk("extra",V.extra)}</div></div>
+    <div class="comp ${U.other?"on":""}">
+      <label class="hd"><input type="checkbox" id="bu_other" ${U.other?"checked":""}> שכר טרחה מלא אחר</label>
+      <div class="in"><label>סכום<input id="bOther" type="number" value="${b.other!=null?num(b.other):(b.amount==null?0:num(b.amount))}"></label>
+        ${vchk("other",V.other)}</div></div>
+  </div>
+  <div class="row"><label>שיעור מע"מ %<input id="bVatRate" type="number" step="0.1" value="${VR}" style="width:80px"></label>
+    <span id="billTot" class="tot"></span></div>
+  <div class="row">
     <button class="act" id="bSave">שמירה</button><button class="ghost" id="bCancel">ביטול</button>
     ${b.id?`<button class="ghost danger" id="bDel">ביטול הדרישה (מחיקת השורה)</button>`:""}
   </div>
   <div id="billInfo" class="mute"></div>
-  <div class="mute">אם משאירים את הסכום הידני ריק — הסכום שלך = שליש משכ"ט המשרד ועוד שכ"ט נוסף.
-  אפשר להזין סכום ידני, או תעריף לשעה שיוכפל בשעות שבוצעו בפועל.</div></div>`;
+  <div class="mute">מסמנים את הרכיבים שנכנסים לדרישה. רק מה שמסומן נספר בסה"כ.</div></div>`;
 }
 const REPNAMES={open:"משימות פתוחות",cancel:"משימות שבוטלו",sched:"לוח זמנים",pay:"דרישת תשלום",
+  doc:"מסמך דרישת תשלום",
   collect:"גבייה",below:"גבייה מתחת ליעד",nobill:"לא לגבייה",feas:"בדיקות כדאיות",
   drill:"לפי לקוח",custom:"דוח מותאם"};
 const CUSTOMCOLS={
@@ -1518,6 +1693,25 @@ const CUSTOMCOLS={
     const r=mineEff(t)/base;
     return `${f0(r)} ${Math.round(r)>=DB.settings.target?'<span class="ok">מעל</span>':'<span class="flag">מתחת</span>'}`;}}
 };
+function docSettings(){
+  const S0=DB.settings, B=S0.bank||{};
+  return `<div class="panel noprint"><div class="grid2">
+    <label>שם העסק<input id="stName" value="${esc(S0.bizName||"")}"></label>
+    <label>ע.מ / ח.פ<input id="stId" value="${esc(S0.bizId||"")}"></label>
+    <label>כתובת<input id="stAddr" value="${esc(S0.bizAddr||"")}"></label>
+    <label>טלפון<input id="stPhone" value="${esc(S0.bizPhone||"")}"></label>
+    <label>דוא"ל<input id="stMail" value="${esc(S0.bizMail||"")}"></label>
+    <label>לכבוד<input id="stTo" value="${esc(S0.payTo||"")}"></label>
+    <label>שיעור מע"מ %<input id="stVat" type="number" step="0.1" value="${num(S0.vat)}"></label>
+    <label>ימים לתשלום<input id="stDays" type="number" value="${num(S0.payDays)||10}"></label>
+    <label>שם הבנק<input id="stBName" value="${esc(B.name||"")}"></label>
+    <label>מספר בנק<input id="stBNum" value="${esc(B.bank||"")}"></label>
+    <label>סניף<input id="stBBr" value="${esc(B.branch||"")}"></label>
+    <label>מספר חשבון<input id="stBAcc" value="${esc(B.acc||"")}"></label>
+    <label style="grid-column:1/-1">על שם<input id="stBOwner" value="${esc(B.owner||"")}"></label>
+  </div><div class="row"><button class="act" id="stSave">שמירה</button>
+    <button class="ghost" id="stClose">סגירה</button></div></div>`;
+}
 function viewReports(){
   const r=S.rep||"open";
   const t0=today();
@@ -1684,24 +1878,58 @@ function viewReports(){
         <div class="row noprint"><label>מחודש<select id="pf">${opts(ms,a)}</select></label>
         <label>עד חודש<select id="pt">${opts(ms,b)}</select></label>
         <button class="ghost" id="pAll">כל התקופות</button></div>`;
-      const monthly=table(["חודש","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","החלק שלך","נסיעות","סה\"כ לגבייה","שולם","יתרה"],
-        sel.map(s=>[s.m,f0(s.fee),f0(s.extra),f0(s.byRate),f0(s.mine),f0(s.travel),f0(s.due),f0(s.paid),f0(s.due-s.paid)]),
-        sel.length>1?["סה\"כ",f0(sum(s=>s.fee)),f0(sum(s=>s.extra)),f0(sum(s=>s.byRate)),f0(sum(s=>s.mine)),
-          f0(sum(s=>s.travel)),f0(sum(s=>s.due)),f0(sum(s=>s.paid)),f0(sum(s=>s.due)-sum(s=>s.paid))]:null,[0,4,6,8]);
+      const monthly=table(["חודש","שכ\"ט משרד","תוספת","לפי שעות","שכ\"ט מלא","החלק שלך","נסיעות","לפני מע\"מ","מע\"מ","סה\"כ לתשלום","שולם","יתרה"],
+        sel.map(s=>[s.m,f0(s.fee),f0(s.extra),f0(s.byRate),f0(s.other),f0(s.mine),f0(s.travel),
+          f0(s.due),f0(s.vat),f0(s.dueGross),f0(s.paid),f0(s.dueGross-s.paid)]),
+        sel.length>1?["סה\"כ",f0(sum(s=>s.fee)),f0(sum(s=>s.extra)),f0(sum(s=>s.byRate)),f0(sum(s=>s.other)),
+          f0(sum(s=>s.mine)),f0(sum(s=>s.travel)),f0(sum(s=>s.due)),f0(sum(s=>s.vat)),
+          f0(sum(s=>s.dueGross)),f0(sum(s=>s.paid)),f0(sum(s=>s.dueGross)-sum(s=>s.paid))]:null,[0,5,9,11]);
       if(a===b){
         const s=sel[0]||{bills:[],fee:0,extra:0,mine:0,travel:0,due:0};
         const withNote=S.payNote!==false;
-        const H=["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה"];
-        const F=["סה\"כ","","",f0(s.fee),f0(s.extra),f0(s.byRate),f1(s.billHours),f0(s.mine),f0(s.paid),f0(s.mine-s.paid)];
+        const H=["לקוח","שנה","תאריך","שכ\"ט משרד","תוספת","לפי שעות","שכ\"ט מלא","שעות בפועל","לפני מע\"מ","מע\"מ","סה\"כ לתשלום","שולם","יתרה"];
+        const F=["סה\"כ","","",f0(s.fee),f0(s.extra),f0(s.byRate),f0(s.other),f1(s.billHours),
+          f0(s.mine),f0(s.vat),f0(s.gross),f0(s.paid),f0(s.gross-s.paid)];
         if(withNote){H.push("הערה");F.push("");}
         return head+`<div class="row noprint"><label><input type="checkbox" id="payNote" ${withNote?"checked":""}> להציג עמודת הערה</label></div>`+
           table(H,s.bills.map(x=>{const r=[clientName(x.clientId||(x.taskId&&taskById(x.taskId)||{}).clientId),
-            x.year,heDate(x.date),f0(x.fee),f0(x.extra),f0(billRateAmount(x)),f1(billHours(x)),
-            f0(billAmount(x)),f0(billPaid(x)),f0(billDue(x))];
-            if(withNote) r.push(esc(x.note||"")); return r;}),F,[0,7,9])
-          +`<div class="mute">החזר נסיעות: ${f0(s.travel)} ₪ · סה"כ לגבייה: <b>${f0(s.due)} ₪</b></div>`+monthly;
+            x.year,heDate(x.date),f0(x.use?(x.use.share?num(x.fee):0):num(x.fee)),
+            f0(billPart(x,"extra")),f0(billPart(x,"rate")),f0(billPart(x,"other")),
+            f1(x.use&&!x.use.rate?0:billHours(x)),
+            f0(billAmount(x)),f0(billVat(x)),f0(billTotal(x)),f0(billPaid(x)),f0(billDue(x))];
+            if(withNote) r.push(esc(x.note||"")); return r;}),F,[0,8,10,12])
+          +`<div class="mute">החזר נסיעות: ${f0(s.travel)} ₪ · סה"כ לפני מע"מ: <b>${f0(s.due)} ₪</b>
+             · מע"מ: ${f0(s.vat)} ₪ · <b>סה"כ לתשלום: ${f0(s.dueGross)} ₪</b></div>`+monthly;
       }
       return head+monthly;
+    }
+    if(r==="doc"){
+      const ms=monthsList(), m=S.docM&&ms.includes(S.docM)?S.docM:defaultMonth();
+      const inM=DB.bills.filter(b=>b.month===m);
+      const cids=[...new Set(inM.map(b=>b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId).filter(Boolean))];
+      const cid=S.docC&&cids.includes(S.docC)?S.docC:"";
+      const det=S.docDet!==false;
+      S.docSel=S.docSel||{};
+      const pick=inM.filter(b=>!cid||(b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId)===cid);
+      const on=b=>S.docSel[b.id]!==false;
+      return `<div class="row noprint">
+        <label>חודש<select id="docM">${opts(ms,m)}</select></label>
+        <label>לקוח<select id="docC"><option value="">כל הלקוחות</option>${
+          opts(cids.map(c=>({v:c,t:clientName(c)})),cid)}</select></label>
+        <button class="chip${det?" on":""}" id="docDetOn">עם פירוט</button>
+        <button class="chip${det?"":" on"}" id="docDetOff">בלי פירוט</button>
+        <button class="ghost" id="docSet">פרטי העסק והבנק</button></div>
+      <div class="panel noprint"><b>מה נכנס לדרישה (${pick.filter(on).length} מתוך ${pick.length})</b>
+        <div class="row" style="margin:4px 0">
+          <button class="mini" id="docAll">סימון הכול</button>
+          <button class="mini" id="docNone">ניקוי הכול</button></div>
+        <div class="picks">${pick.length?pick.map(b=>{
+            const c2=b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId;
+            return `<label class="pk${on(b)?" on":""}"><input type="checkbox" data-bid="${b.id}" ${on(b)?"checked":""}>
+              ${esc(c2?clientName(c2):"—")} ${esc(String(b.year||""))} · ${f0(billTotal(b))} ₪</label>`;}).join("")
+          :'<span class="mute">אין דרישות בחודש הזה</span>'}</div></div>
+        ${S.docSet?docSettings():""}
+        ${payDoc(m,cid,det,S.docSel)}`;
     }
     if(r==="below"){
       const target=DB.settings.target;
@@ -1799,11 +2027,15 @@ function viewReports(){
           t.noBill?'לא לגבייה':(billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>'))]));
   };
   return `<div class="row noprint">
-    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","below|מתחת ליעד","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
+    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","doc|מסמך רשמי","collect|גבייה","below|מתחת ליעד","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
-    <button class="ghost" id="xlsx">ייצוא לאקסל</button>
-    <button class="ghost" onclick="printReport()">הדפסה</button>
+  </div>
+  <div class="row noprint" style="border-top:1px solid var(--line);padding-top:6px">
+    <span class="mute">פלט:</span>
+    <button class="ghost" id="outScreen">🖥 תצוגה על המסך</button>
+    <button class="ghost" onclick="printReport()">🖨 הדפסה / PDF</button>
     <button class="act" id="saveRep">💾 שמירה לתיקייה</button>
+    <button class="ghost" id="xlsx">ייצוא לאקסל</button>
   </div>
   <div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
     <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>
@@ -2191,38 +2423,53 @@ function wireTimeForm(x){
 }
 function wireBillForm(b,free){
   $("#bCancel").onclick=()=>{$("#billForm").innerHTML="";};
-  $("#bSave").onclick=()=>{
-    const tid=free?null:$("#bTask").value;
+  const CK=id=>{const e=$("#"+id);return !!(e&&e.checked);};
+  const draft=()=>{
+    const tid=free?null:($("#bTask")?$("#bTask").value:null);
     const t=tid?taskById(tid):null;
-    const o={id:(b&&b.id)||uid(),month:$("#bMonth").value,taskId:tid,
+    return {id:(b&&b.id)||uid(),month:$("#bMonth").value,taskId:tid,
       clientId:free?$("#bClient").value:(t?t.clientId:null),
       year:free?$("#bYear").value:(t?t.year:""),date:$("#bDate").value,
-      fee:+$("#bFee").value||0,extra:+$("#bExtra").value||0,
+      fee:+$("#bFee").value||0,extra:+$("#bExtra").value||0,other:+$("#bOther").value||0,
       rate:$("#bRate").value===""?null:+$("#bRate").value,
       hours:$("#bHours").value===""?null:+$("#bHours").value,
-      amount:$("#bAmt").value===""?null:+$("#bAmt").value,note:$("#bNote").value,
+      amount:null,note:$("#bNote").value,
+      use:{share:CK("bu_share"),rate:CK("bu_rate"),extra:CK("bu_extra"),other:CK("bu_other")},
+      vat:{share:CK("bv_share"),rate:CK("bv_rate"),extra:CK("bv_extra"),other:CK("bv_other")},
+      vatRate:+$("#bVatRate").value||0,
       payments:(b&&b.payments)||[]};
+  };
+  $("#bSave").onclick=()=>{
+    const o=draft();
+    if(!billComp(o).length){toast("צריך לסמן לפחות רכיב אחד");return;}
     const i=DB.bills.findIndex(x=>x.id===o.id);
     if(i>=0) DB.bills[i]=o; else DB.bills.push(o);
     S.billMonth=o.month; saveLocal();renderAll();toast("נשמר בדרישת התשלום");};
   if($("#bDel")) $("#bDel").onclick=()=>{DB.bills=DB.bills.filter(x=>x.id!==b.id);saveLocal();renderAll();toast("נמחק");};
-  const info=()=>{const box=$("#billInfo"); if(!box) return;
+  const info=()=>{
+    ["share","rate","extra","other"].forEach(k=>{const c=$("#bu_"+k);
+      if(c&&c.closest(".comp")) c.closest(".comp").classList.toggle("on",c.checked);});
+    const o=draft(), comp=billComp(o);
+    const tt=$("#billTot");
+    if(tt) tt.innerHTML=comp.length
+      ? `סה"כ לפני מע"מ <b>${f0(billAmount(o))} ₪</b> · מע"מ ${f0(billVat(o))} ₪ · `+
+        `<span style="color:var(--accent-d)">לתשלום ${f0(billTotal(o))} ₪</span>`
+      : `<span class="flag">לא סומן אף רכיב</span>`;
+    const box=$("#billInfo"); if(!box) return;
     const ts2=$("#bTask"); const t=ts2?taskById(ts2.value):(b&&b.taskId?taskById(b.taskId):null);
-    if(!t){box.innerHTML="";return;}
-    const act=taskHours(t.id);
-    const hrs=$("#bHours").value===""?act:(+$("#bHours").value||0);
-    const byRate=(+$("#bRate").value||0)*hrs;
-    const base=(+$("#bFee").value||0)*DB.settings.share+(+$("#bExtra").value||0)+byRate;
-    const man=$("#bAmt").value===""?null:+$("#bAmt").value;
-    const fin=man==null?base:man;
-    box.innerHTML=`<b>שעות בפועל במשימה: ${f1(act)}</b> · צפי ${f1(t.est)} · סטטוס ${esc(t.submit)}`+
-      `<br>הסכום שלך: <b>${f0(fin)} ₪</b>`+(byRate?` (מתוכם ${f0(byRate)} לפי שעות)`:"")+
-      (hrs>0?` · ₪ לשעה: <b>${f0(fin/hrs)}</b> (יעד ${f0(DB.settings.target)})`:"");};
+    const lines=comp.map(x=>esc(x.label)+": "+f0(x.amount)+" ₪"+(x.vat?"":" (ללא מע\"מ)")).join(" · ");
+    const hrs=billHours(o);
+    box.innerHTML=(t?`<b>שעות בפועל במשימה: ${f1(taskHours(t.id))}</b> · צפי ${f1(t.est)} · סטטוס ${esc(t.submit)}<br>`:"")+
+      (lines?lines:"")+
+      (hrs>0&&billAmount(o)>0?`<br>₪ לשעה: <b>${f0(billAmount(o)/hrs)}</b> (יעד ${f0(DB.settings.target)})`:"");};
   const ts=$("#bTask");
   if(ts) ts.onchange=()=>{const t=taskById(ts.value);if(!t){info();return;}
-    $("#bFee").value=num(t.fee);$("#bExtra").value=num(t.extra);info();};
-  ["bFee","bExtra","bAmt"].forEach(id=>{const e=$("#"+id); if(e) e.oninput=info;});
-  ["bRate","bHours"].forEach(id=>{const e=$("#"+id); if(e) e.oninput=info;});
+    $("#bFee").value=num(t.fee);$("#bExtra").value=num(t.extra);
+    if($("#bHours").value==="") $("#bHours").value=f1(taskHours(t.id));
+    info();};
+  ["bFee","bExtra","bOther","bRate","bHours","bVatRate"].forEach(id=>{const e=$("#"+id); if(e) e.oninput=info;});
+  ["bu_share","bu_rate","bu_extra","bu_other","bv_share","bv_rate","bv_extra","bv_other"]
+    .forEach(id=>{const e=$("#"+id); if(e) e.onchange=info;});
   info();
 }
 function wire(){
@@ -2415,6 +2662,27 @@ function wire(){
     dInfo(L.join(" · "));};
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
+  if(el("docM")) el("docM").onchange=e=>{S.docM=e.target.value;S.docC="";renderAll();showTab("reports");};
+  if(el("docC")) el("docC").onchange=e=>{S.docC=e.target.value;renderAll();showTab("reports");};
+  if(el("docDetOn")) el("docDetOn").onclick=()=>{S.docDet=true;renderAll();showTab("reports");};
+  if(el("docDetOff")) el("docDetOff").onclick=()=>{S.docDet=false;renderAll();showTab("reports");};
+  document.querySelectorAll("#s-reports .pk input[data-bid]").forEach(c=>c.onchange=()=>{
+    S.docSel=S.docSel||{}; S.docSel[c.dataset.bid]=c.checked; renderAll(); showTab("reports");});
+  if(el("docAll")) el("docAll").onclick=()=>{S.docSel={};renderAll();showTab("reports");};
+  if(el("docNone")) el("docNone").onclick=()=>{S.docSel={};
+    DB.bills.forEach(b=>{S.docSel[b.id]=false;});renderAll();showTab("reports");};
+  if(el("docSet")) el("docSet").onclick=()=>{S.docSet=!S.docSet;renderAll();showTab("reports");};
+  if(el("stClose")) el("stClose").onclick=()=>{S.docSet=false;renderAll();showTab("reports");};
+  if(el("stSave")) el("stSave").onclick=()=>{
+    const g=id=>{const e=el(id);return e?e.value:"";};
+    Object.assign(DB.settings,{bizName:g("stName"),bizId:g("stId"),bizAddr:g("stAddr"),
+      bizPhone:g("stPhone"),bizMail:g("stMail"),payTo:g("stTo"),
+      vat:+g("stVat")||0,payDays:+g("stDays")||10,
+      bank:{name:g("stBName"),bank:g("stBNum"),branch:g("stBBr"),acc:g("stBAcc"),owner:g("stBOwner")}});
+    S.docSet=false; saveLocal(); renderAll(); showTab("reports"); toast("נשמר");};
+  if(el("outScreen")) el("outScreen").onclick=()=>{ S.docSet=false; renderAll(); showTab("reports");
+    const sec=el("s-reports"); if(sec&&sec.scrollIntoView) sec.scrollIntoView({behavior:"smooth",block:"start"});
+    toast("מוצג על המסך"); };
   if(el("offRead")) el("offRead").onclick=()=>{
     const f=el("offFile").files[0];
     const m=el("offMsg"); if(!f){ m.innerHTML='<span class="flag">צריך לבחור קובץ</span>'; return; }
@@ -2505,7 +2773,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.63.0";
+const VER="3.65.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
