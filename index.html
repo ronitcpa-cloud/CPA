@@ -383,11 +383,16 @@ window.undoLast=()=>{
   if(drive.auto&&drive.token) driveSave(true);
 };
 const SETDEF={vat:18,bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',
-  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10};
+  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,gcalColor:'7'};
+const GCOLORS=[{v:"7",t:"כחול־טורקיז (Peacock)"},{v:"9",t:"כחול כהה (Blueberry)"},
+  {v:"1",t:"סגול בהיר (Lavender)"},{v:"3",t:"סגול (Grape)"},{v:"5",t:"צהוב (Banana)"},
+  {v:"6",t:"כתום (Tangerine)"},{v:"4",t:"ורוד (Flamingo)"},{v:"11",t:"אדום (Tomato)"},
+  {v:"2",t:"ירוק בהיר (Sage)"},{v:"10",t:"ירוק (Basil)"},{v:"8",t:"אפור (Graphite)"},
+  {v:"",t:"צבע ברירת המחדל של היומן"}];
 const BANKDEF={name:'ONE ZERO',bank:'18',branch:'001',acc:'228700682',owner:'רונית מלכה ערוסי'};
 function migrate(){
   DB.settings=DB.settings||{};
-  Object.keys(SETDEF).forEach(k=>{ if(DB.settings[k]==null||DB.settings[k]==="") DB.settings[k]=SETDEF[k]; });
+  Object.keys(SETDEF).forEach(k=>{ if(DB.settings[k]==null) DB.settings[k]=SETDEF[k]; });
   DB.settings.bank=Object.assign({},BANKDEF,DB.settings.bank||{});
   DB.busy=DB.busy||[];
   let moved=0;
@@ -976,6 +981,8 @@ async function gcalUpsert(p,quiet){
   const t=planTimes(p);
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
+  const col=DB.settings.gcalColor;
+  if(col) body.colorId=String(col);
   const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
   const send=async(id)=>{
     const r=await gFetch(id?(base+"/"+id):base,
@@ -2425,6 +2432,7 @@ function viewData(){
     <label>תעריף ברירת מחדל לק"מ<input id="sKm" type="number" step="0.1" value="${DB.settings.kmRate}"></label>
     <label>מייל לשליחת דרישות<input id="sMail" value="${esc(DB.settings.billEmail||"")}"></label>
     <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
+    <label>צבע האירועים ביומן<select id="sGcol">${opts(GCOLORS,DB.settings.gcalColor==null?"7":String(DB.settings.gcalColor))}</select></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -3073,7 +3081,14 @@ function wire(){
     DB.settings.share=+$("#sShare").value||1/3;DB.settings.target=+$("#sTarget").value||200;
     DB.settings.targetNext=+$("#sNext").value||250;DB.settings.hoursPerDay=+$("#sHpd").value||7;
     DB.settings.kmRate=+$("#sKm").value||1;DB.settings.billEmail=$("#sMail").value.trim();DB.settings.inclGeneral=$("#sGen").value==="yes";
-    saveLocal();renderAll();toast("ההגדרות נשמרו");};
+    DB.settings.gcal=$("#sGcal").value==="yes";
+    const oldCol=String(DB.settings.gcalColor==null?"":DB.settings.gcalColor);
+    DB.settings.gcalColor=$("#sGcol").value;
+    if(String(DB.settings.gcalColor)!==oldCol) DB.plans.forEach(p=>{if(p.evId)p.evDirty=true;});
+    saveLocal();renderAll();
+    toast(String(DB.settings.gcalColor)!==oldCol
+      ?"ההגדרות נשמרו — ללוח החודשי ולחיצה על שליחה ליומן כדי להחיל את הצבע"
+      :"ההגדרות נשמרו");};
   if(el("jsonOut")) el("jsonOut").onclick=()=>{
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
     a.download="cpa-backup-"+iso(today())+".json";a.click();};
@@ -3126,7 +3141,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.87.0";
+const VER="3.88.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
