@@ -187,13 +187,25 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  td:first-child{border-bottom:1px solid #ddd;margin:0;font-weight:400;font-size:9px}
  .m-hide{display:table-cell!important}
  td{white-space:normal}
+ td[data-l="תאריך"],td[data-l="שנה"],td[data-l="יעד הגשה"],td[data-l="לו\"ז"],
+ td[data-l="שעות בפועל"],td[data-l="צפי"],td[data-l="נותרו"],td[data-l="שכ\"ט"],
+ td[data-l="שכ\"ט משרד"],td[data-l="תוספת"],td[data-l="לפי שעות"],td[data-l="שכ\"ט מלא"],
+ td[data-l="לפני מע\"מ"],td[data-l="מע\"מ"],td[data-l="סה\"כ לתשלום"],td[data-l="שולם"],
+ td[data-l="יתרה"],td[data-l="סה\"כ חלקי"],td[data-l="חלקי"]{white-space:nowrap}
  header{background:#fff;color:#000;border-bottom:2px solid #000;padding:6px 0}
  header h1{font-size:14px}
  body{background:#fff;font-size:10px}
  main{padding:0;max-width:none}
  .scroll{border:none;overflow:visible!important}
  table{width:100%;table-layout:fixed;border:1px solid #bbb;font-size:9px}
- th,td{padding:2px 3px;white-space:normal;word-break:break-word;overflow-wrap:anywhere;border-bottom:1px solid #ddd}
+ th,td{padding:3px 4px;white-space:normal;word-break:normal;overflow-wrap:break-word;
+   hyphens:none;border-bottom:1px solid #ddd;vertical-align:top}
+ button,.mini,.act,.ghost,input,select{display:none!important}
+ td:empty{padding:0}
+ .cards{break-inside:avoid;page-break-inside:avoid}
+ .card{break-inside:avoid;page-break-inside:avoid}
+ .panel{break-inside:avoid;page-break-inside:avoid}
+ table{break-inside:auto}
  th{background:#eee;color:#000;font-size:9px}
  .cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
  .card{padding:4px 6px;box-shadow:none}
@@ -1063,9 +1075,11 @@ function payDoc(m,clientId,detail,sel){
       <tr><td>שירותי ראיית חשבון — ${esc(heMonth)}${clientId?" · "+esc(clientName(clientId)):""}</td>
         <td class="n">${f0(net)}</td></tr></tbody></table>`;
   } else {
+    const anyVat=lines.some(x=>x.vat);
     const row=x=>`<tr><td>${esc(x.who)}</td><td>${esc(x.what)}</td>
-      <td class="n">${f0(x.amount)}</td><td class="c">${x.vat?"כן":"לא"}</td></tr>`;
-    body=`<table class="pd-tbl"><thead><tr><th>לקוח</th><th>פירוט</th><th class="n">סכום ₪</th><th class="c">מע"מ</th></tr></thead>
+      <td class="n">${f0(x.amount)}</td>${anyVat?`<td class="c">${x.vat?"כן":"לא"}</td>`:""}</tr>`;
+    body=`<table class="pd-tbl"><thead><tr><th>לקוח</th><th>פירוט</th><th class="n">סכום ₪</th>${
+        anyVat?'<th class="c">מע"מ</th>':""}</tr></thead>
       <tbody>${lines.length?lines.map(row).join(""):'<tr><td colspan="4">אין שורות לתקופה זו</td></tr>'}</tbody></table>`;
   }
   return `<div class="paydoc">
@@ -1086,7 +1100,7 @@ function payDoc(m,clientId,detail,sel){
     ${body}
     <div class="pd-sum">
       <div><span>סה"כ לפני מע"מ</span><b>${f0(net)} ₪</b></div>
-      <div><span>מע"מ ${f1(num(S0.vat))}%</span><b>${f0(vat)} ₪</b></div>
+      ${vat>0?`<div><span>מע"מ ${f1(num(S0.vat))}%</span><b>${f0(vat)} ₪</b></div>`:""}
       <div class="big"><span>סה"כ לתשלום</span><b>${f0(tot)} ₪</b></div>
     </div>
     <div class="pd-pay">
@@ -1589,22 +1603,28 @@ function viewBills(){
   const rows=s.bills.map(b=>{const t=b.taskId?taskById(b.taskId):null;
     const st=billStatus(b), cls=st==="שולם"?"ok":(st==="שולם חלקית"?"warn":"flag");
     return [clientName(b.clientId||(t&&t.clientId)),b.year||(t&&t.year)||"",heDate(b.date),
-      f0(b.fee),f0(b.extra)||"",f0(billRateAmount(b))||"",f1(billHours(b))||"",
-      `<b>${f0(billAmount(b))}</b>`,f0(billPaid(b))||"",f0(billDue(b)),
+      f0(b.use?(b.use.share?num(b.fee):0):num(b.fee)),f0(billPart(b,"extra"))||"",
+      f0(billPart(b,"rate"))||"",f0(billPart(b,"other"))||"",
+      f1(b.use&&!b.use.rate?0:billHours(b))||"",
+      f0(billAmount(b)),f0(billVat(b))||"",`<b>${f0(billTotal(b))}</b>`,
+      f0(billPaid(b))||"",f0(billDue(b)),
       `<span class="${cls}">${st}</span>`,esc(b.note||""),
-      `<button class="mini" onclick="payBill('${b.id}')">תשלום</button>
-       <button class="mini" onclick="editBill('${b.id}')">עריכה</button>`];});
-  const totals=["סה\"כ","","",f0(s.fee),f0(s.extra),f0(s.byRate),f1(s.billHours),
-    `<b>${f0(s.mine)}</b>`,f0(s.paid),f0(s.mine-s.paid),"","",""];
+      `<span class="noprint"><button class="mini" onclick="payBill('${b.id}')">תשלום</button>
+       <button class="mini" onclick="editBill('${b.id}')">עריכה</button></span>`];});
+  const totals=["סה\"כ","","",f0(s.fee),f0(s.extra),f0(s.byRate),f0(s.other),f1(s.billHours),
+    f0(s.mine),f0(s.vat),`<b>${f0(s.gross)}</b>`,f0(s.paid),f0(s.gross-s.paid),"","",""];
   return `${printBtn()}${printHead("דרישת תשלום")}<h2>דרישת תשלום — ${m}</h2>
   <div class="row noprint">
     <label>חודש <select id="bM">${opts(months,m)}</select></label>
     <button class="act" id="bAdd">+ הוסף משימה לדרישה</button>
     <button class="ghost" id="bFree">+ שורה חופשית</button>
     <button class="ghost" id="bMail">✉ שליחה במייל</button>
+    <button class="act" id="bDoc">📄 מסמך דרישת תשלום רשמי</button>
+    <button class="ghost" onclick="vatApply('${m}',true)">החלת מע"מ על החודש</button>
+    ${s.vat>0?`<button class="ghost" onclick="vatApply('${m}',false)">ביטול מע"מ</button>`:""}
   </div>
   <div id="billForm"></div>
-  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","לפי שעות","שעות בפועל","סה\"כ חלקי","שולם","יתרה","מצב","הערה",""],rows,totals,[0,7,9,10,12])}
+  ${table(["לקוח","שנה","תאריך","שכ\"ט משרד","תוספת","לפי שעות","שכ\"ט מלא","שעות בפועל","לפני מע\"מ","מע\"מ","סה\"כ לתשלום","שולם","יתרה","מצב","הערה",""],rows,totals,[0,10,12,13,15])}
   <h2>נסיעות וסיכום</h2>
   <div class="panel noprint"><div class="grid2">
     <label>ימי משרד (מסומנים: ${officeDays(m)})<input id="trD" type="number" value="${tr.days==null||tr.days===""?officeDays(m):num(tr.days)}"></label>
@@ -1614,10 +1634,11 @@ function viewBills(){
   </div><div class="mute">תאריכי משרד: ${officeList(m).map(d=>heDate(d)).join(" · ")||"טרם סומנו — אפשר לסמן במסך שעות או בלוח החודשי"}</div>
   <div class="row"><button class="act" id="trSave">עדכון נסיעות</button></div></div>
   <div class="cards" style="margin-top:8px">
-    ${card("סה\"כ חלקי",f0(s.mine)+" ₪","")}
+    ${card("סה\"כ חלקי",f0(s.mine)+" ₪","לפני מע\"מ")}
+    ${card("מע\"מ",f0(s.vat)+" ₪","")}
     ${card("החזר נסיעות",f0(s.travel)+" ₪","")}
-    ${card("סה\"כ לגבייה",f0(s.due)+" ₪",m)}
-    ${card("שולם",f0(s.paid)+" ₪","יתרה "+f0(s.due-s.paid),s.due-s.paid<=0.01?"good":"warn")}
+    ${card("סה\"כ לתשלום",f0(s.dueGross)+" ₪",m)}
+    ${card("שולם",f0(s.paid)+" ₪","יתרה "+f0(s.dueGross-s.paid),s.dueGross-s.paid<=0.01?"good":"warn")}
   </div>
 `;
 }
@@ -1874,7 +1895,11 @@ function viewReports(){
       const a=lo<=hi?lo:hi, b=lo<=hi?hi:lo;
       const sel=ms.filter(m=>m>=a&&m<=b).map(monthSummary);
       const sum=f=>sel.reduce((s,x)=>s+f(x),0);
-      const head=`<h2>דוח דרישת תשלום — ${a===b?a:a+" עד "+b}</h2>
+      const head=`<div class="noprint" style="background:var(--accent-2);border:1px solid #a9d6f7;
+        border-radius:8px;padding:8px 11px;margin-bottom:6px;font-size:13.5px">
+        זהו <b>דוח עבודה פנימי</b>. את המסמך הרשמי שנשלח לתשלום מפיקים כאן:
+        <button class="act" style="margin-right:6px" onclick="S.rep='doc';S.docM='${a}';S.docSel={};renderAll()">📄 מסמך רשמי</button></div>
+        <h2>דוח דרישת תשלום — ${a===b?a:a+" עד "+b}</h2>
         <div class="row noprint"><label>מחודש<select id="pf">${opts(ms,a)}</select></label>
         <label>עד חודש<select id="pt">${opts(ms,b)}</select></label>
         <button class="ghost" id="pAll">כל התקופות</button></div>`;
@@ -2027,8 +2052,10 @@ function viewReports(){
           t.noBill?'לא לגבייה':(billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>'))]));
   };
   return `<div class="row noprint">
-    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","doc|מסמך רשמי","collect|גבייה","below|מתחת ליעד","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
+    ${["open|פתוחים","cancel|בוטלו","sched|לו\"ז","pay|דרישת תשלום","collect|גבייה","below|מתחת ליעד","nobill|לא לגבייה","feas|בדיקות כדאיות","drill|לפי לקוח","custom|דוח מותאם"].map(x=>{const[v,t]=x.split("|");
       return `<button class="${r===v?"act":"ghost"}" onclick="S.rep='${v}';renderAll()">${t}</button>`;}).join("")}
+    <button class="${r==="doc"?"act":"ghost"}" style="${r==="doc"?"":"border-color:var(--accent);color:var(--accent-d);font-weight:700"}"
+      onclick="S.rep='doc';renderAll()">📄 מסמך רשמי ללקוח</button>
   </div>
   <div class="row noprint" style="border-top:1px solid var(--line);padding-top:6px">
     <span class="mute">פלט:</span>
@@ -2037,8 +2064,8 @@ function viewReports(){
     <button class="act" id="saveRep">💾 שמירה לתיקייה</button>
     <button class="ghost" id="xlsx">ייצוא לאקסל</button>
   </div>
-  <div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
-    <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>
+  ${r==="doc"?"":`<div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
+    <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>`}
   ${body()}`;
 }
 function viewClients(){
@@ -2277,6 +2304,23 @@ window.drill=k=>{S.drill=(S.drill===k?null:k);renderAll();showTab("status");
   const el=$("#drillBox"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
 window.pickDay=k=>{S.calDay=k;S.calMonth=monthOf(k);renderAll();showTab("cal");
   const el=$("#dayPanel"); if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"});};
+window.vatApply=(m,on)=>{
+  const list=DB.bills.filter(b=>b.month===m);
+  if(!list.length){toast("אין דרישות בחודש הזה");return;}
+  if(!confirm((on?"להחיל מע\"מ "+num(DB.settings.vat)+"% על ":"לבטל מע\"מ מ־")+list.length+
+    " דרישות בחודש "+m+"?")) return;
+  snapTake(on?"לפני החלת מע\"מ":"לפני ביטול מע\"מ");
+  list.forEach(b=>{
+    if(!b.use) b.use={share:!(b.amount!=null&&b.amount!==""),rate:num(b.rate)>0&&billHours(b)>0,
+      extra:num(b.extra)>0,other:!!(b.amount!=null&&b.amount!=="")};
+    if(b.other==null&&b.amount!=null&&b.amount!=="") b.other=num(b.amount);
+    b.amount=null;
+    b.vat={share:on,rate:on,extra:on,other:on};
+    b.vatRate=on?num(DB.settings.vat):0;
+  });
+  saveLocal(); renderAll(); showTab(S.tab||"bills");
+  toast(on?"הוחל מע\"מ על "+list.length+" דרישות":"בוטל המע\"מ");
+};
 window.busyClear=k=>{ DB.busy=(DB.busy||[]).filter(b=>b.date!==k);
   saveLocal(); renderAll(); showTab("cal"); toast("המשבצות הפרטיות הוסרו מ"+heDate(k)); };
 window.planDel=id=>{const p=DB.plans.find(x=>x.id===id);
@@ -2664,6 +2708,8 @@ function wire(){
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
   if(el("docM")) el("docM").onchange=e=>{S.docM=e.target.value;S.docC="";renderAll();showTab("reports");};
   if(el("docC")) el("docC").onchange=e=>{S.docC=e.target.value;renderAll();showTab("reports");};
+  if(el("bDoc")) el("bDoc").onclick=()=>{ S.rep="doc"; S.docM=S.billMonth||defaultMonth();
+    S.docC=""; S.docSel={}; renderAll(); showTab("reports"); };
   if(el("docDetOn")) el("docDetOn").onclick=()=>{S.docDet=true;renderAll();showTab("reports");};
   if(el("docDetOff")) el("docDetOff").onclick=()=>{S.docDet=false;renderAll();showTab("reports");};
   document.querySelectorAll("#s-reports .pk input[data-bid]").forEach(c=>c.onchange=()=>{
@@ -2773,7 +2819,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.65.0";
+const VER="3.67.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
