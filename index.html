@@ -44,17 +44,27 @@ h2:first-child{margin-top:0}
  max-width:100%;width:100%}
 table{width:100%;min-width:0;border-collapse:collapse;font-size:13px;table-layout:auto}
 /* טקסט נשבר לשורה שנייה כדי שהטבלה תיכנס למסך; מספרים ותאריכים לא נשברים */
-/* ככלל: מילה שלמה עוברת לשורה הבאה, לעולם לא נשברת באמצע */
-th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--line);
- white-space:normal;overflow-wrap:break-word;word-break:keep-all;hyphens:none}
-th{white-space:nowrap}
+/* ככלל: שורה בגובה אחיד — תא אחד בשורה אחת, בלי התרחבות ובלי שבירת מילים */
+th,td{padding:5px 5px;text-align:right;border-bottom:1px solid var(--line);
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:keep-all;hyphens:none;
+ vertical-align:middle}
+tbody tr,thead tr,tfoot tr{height:34px}
+/* עמודות טקסט ארוך נחתכות בסוף השורה; לחיצה פותחת את הטקסט המלא */
+td[data-l="הערה"]{max-width:140px;color:var(--ink-2)}
+td[data-l="סיבה"],td[data-l="תיאור"],td[data-l="פרטים"],td[data-l="מה ישתנה"]{max-width:132px}
+td[data-l="לקוח"],td[data-l="שם"],td[data-l="משימה"],td[data-l="פירוט"]{max-width:135px}
+@media (min-width:1500px){
+  td[data-l="הערה"]{max-width:260px}
+  td[data-l="סיבה"],td[data-l="תיאור"],td[data-l="פרטים"],td[data-l="מה ישתנה"]{max-width:230px}
+  td[data-l="לקוח"],td[data-l="שם"],td[data-l="משימה"],td[data-l="פירוט"]{max-width:190px}
+}
 th.num,td.num,td.nw,th.nw{white-space:nowrap;overflow-wrap:normal}
 /* עמודת הפעולות תמיד צמודה לקצה ונגישה ללחיצה גם אם הטבלה רחבה */
 .scroll table td.act,.scroll table th.act{position:sticky;left:0;z-index:2;background:var(--panel);
  box-shadow:-6px 0 6px -6px rgba(16,48,110,.18);white-space:nowrap;padding-left:7px;padding-right:7px}
 .scroll table th.act{background:var(--accent-2);z-index:3}
 .scroll table tfoot td.act{background:#eaf4fe}
-td[data-l="הערה"]{white-space:normal;overflow-wrap:break-word;word-break:keep-all;color:var(--ink-2)}
+
 @media (max-width:680px){ .scroll table td.act,.scroll table th.act{box-shadow:none;position:static} }
 @media print{ .scroll table td.act,.scroll table th.act{position:static;box-shadow:none} }
 th{background:var(--accent-2);color:var(--accent-d);font-size:12px;font-weight:700;position:sticky;top:0}
@@ -68,9 +78,8 @@ button.act{background:linear-gradient(180deg,#1b9bef,#0d7fd0);color:#fff;border:
 button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font:inherit;cursor:pointer}
 button.mini{background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 8px;font:inherit;font-size:13px;cursor:pointer}
 button.danger{color:var(--bad)}
-/* ההערה מוצגת במלואה — בלי קיצור ובלי שבירת מילים */
-.note{display:inline;white-space:normal;overflow-wrap:break-word;word-break:keep-all;
- cursor:pointer;color:var(--ink)}
+.note{display:inline;white-space:nowrap;cursor:pointer;color:var(--ink)}
+.note:hover{text-decoration:underline}
 .note:hover{text-decoration:underline}
 
 .flag{color:var(--bad);font-weight:600}.ok{color:var(--good)}.mute{color:var(--ink-2);font-size:13px}
@@ -235,10 +244,14 @@ body.clean h2{font-size:15px}
  th[data-l="סטטוס עבודה"],td[data-l="סטטוס עבודה"],th[data-l="הגשה"],td[data-l="הגשה"],
  th[data-l="אצל מי"],td[data-l="אצל מי"],th[data-l="תכנון"],td[data-l="תכנון"],
  th[data-l="גבייה"],td[data-l="גבייה"],th[data-l="מצב"],td[data-l="מצב"]{width:1%;white-space:nowrap}
- th[data-l="הערה"],td[data-l="הערה"]{width:auto;white-space:normal;max-width:none!important}
- th,td{padding:3px 4px;white-space:normal;word-break:keep-all;overflow-wrap:break-word;
-   hyphens:none;border-bottom:1px solid #ddd;vertical-align:top}
- th{white-space:normal}
+ th[data-l="הערה"],td[data-l="הערה"]{width:40%;max-width:40%!important;white-space:normal}
+ th[data-l="סיבה"],td[data-l="סיבה"]{width:1%;white-space:normal;max-width:110px!important}
+ th,td{padding:3px 4px;white-space:normal!important;word-break:keep-all;overflow-wrap:break-word;
+   hyphens:none;border-bottom:1px solid #ddd;vertical-align:top;
+   overflow:visible!important;text-overflow:clip!important;max-width:none!important}
+ th{white-space:normal!important}
+ tbody tr,thead tr,tfoot tr{height:auto}
+ .note{white-space:normal!important}
  button,.mini,.act,.ghost,input,select{display:none!important}
  td:empty{padding:0}
  .cards{break-inside:avoid;page-break-inside:avoid}
@@ -1214,7 +1227,10 @@ function table(head,rows,foot,keep){
     if(actCol&&i===lastI) c.push("act");
     if(extra) c.push(extra);
     return c.length?' class="'+c.join(" ")+'"':'';};
-  const td=(c,i)=>`<td${cls(i)} data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;
+  const td=(c,i)=>{const t=plain(c);
+    const tip=(t.length>18&&!/<button|<input|<select/.test(String(c==null?"":c)))
+      ?` title="${t.replace(/"/g,"&quot;")}"`:"";
+    return `<td${cls(i)}${tip} data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;};
   return `<div class="scroll"><table><thead><tr>${head.map((h,i)=>
     `<th${cls(i)} data-l="${String(h==null?"":h).replace(/"/g,"&quot;")}">${h}</th>`).join("")}</tr></thead>
    <tbody>${rows.length?rows.map(r=>`<tr>${r.map(td).join("")}</tr>`).join("")
@@ -1392,16 +1408,16 @@ function viewStatus(){
     .map(t=>({t,why:"טרם נדרש תשלום",kind:"bill"}));
   const noDate=open.filter(t=>!t.sched).map(t=>({t,why:"ללא יעד הגשה",kind:"plan"}));
   const noPlan=open.filter(t=>t.work==="אצלי"&&!DB.plans.some(p=>p.taskId===t.id&&!p.done))
-    .map(t=>({t,why:"אצלי ואין לה תכנון בלוח",kind:"plan"}));
+    .map(t=>({t,why:"אין תכנון בלוח",kind:"plan"}));
   const noFee=mine.filter(t=>num(t.fee)<=0&&num(t.extra)<=0&&!billedTask(t.id))
-    .map(t=>({t,why:"שכ\"ט המשרד 0 — חסר סכום",kind:"fee"}));
+    .map(t=>({t,why:"שכ\"ט משרד 0",kind:"fee"}));
   const workedNotBilled=open.filter(t=>taskHours(t.id)>0&&!billedTask(t.id))
-    .map(t=>({t,why:"בוצעו "+f1(taskHours(t.id))+" שעות וטרם נדרש תשלום",kind:"bill"}));
-  const latePlan=open.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר ("+heDate(t.sched)+")",kind:"plan"}));
+    .map(t=>({t,why:"בוצעו "+f1(taskHours(t.id))+" שעות",kind:"bill"}));
+  const latePlan=open.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר",kind:"plan"}));
   const zeroBills=DB.bills.filter(b=>billAmount(b)<=0.001).map(b=>{
     const t=b.taskId?taskById(b.taskId):null;
     return {t:t||{id:"",clientId:b.clientId,year:b.year,type:"",submit:"דרישה",notes:""},
-      bill:b,why:"דרישת תשלום על 0 ₪ — חסר שכ\"ט או שעות",kind:"zero"};});
+      bill:b,why:"דרישה על 0 ₪",kind:"zero"};});
   const seen={}; const attention=[...noFee,...needBill,...zeroBills,...workedNotBilled,...latePlan,...noPlan,...noDate]
     .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
   return `${printBtn()}${printHead("מצב פיננסי")}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
@@ -3081,7 +3097,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.85.0";
+const VER="3.86.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
