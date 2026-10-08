@@ -968,18 +968,36 @@ function planTimes(p){
   const f=d=>d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes())+":00";
   return {start:f(s0),end:f(e0)};
 }
-async function gcalUpsert(p){
-  if(!DB.settings.gcal) return;
-  if(!drive.token){ drive.needsAuth=true; return; }
+/* תכנון שטרם הגיע ליומן מסומן כממתין, וייכנס בסנכרון הבא */
+const gcalPending=m=>DB.plans.filter(p=>(!m||monthOf(p.date)===m)&&!p.done&&(!p.evId||p.evDirty));
+async function gcalUpsert(p,quiet){
+  if(!DB.settings.gcal) return {ok:false,why:"off"};
+  if(!drive.token){ p.evDirty=true; drive.needsAuth=true; return {ok:false,why:"auth"}; }
   const t=planTimes(p);
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
+  const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+  const send=async(id)=>{
+    const r=await gFetch(id?(base+"/"+id):base,
+      {method:id?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    return r.json();
+  };
   try{
-    const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
-    const r=await gFetch(p.evId?(base+"/"+p.evId):base,
-      {method:p.evId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    const j=await r.json(); if(j&&j.id){p.evId=j.id; saveLocal();}
-  }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;} }
+    let j;
+    try{ j=await send(p.evId); }
+    catch(e1){
+      /* האירוע נמחק ביומן — יוצרים אותו מחדש במקום להיכשל בשקט */
+      if(p.evId&&!/auth/.test(e1.message||"")){ p.evId=null; j=await send(null); }
+      else throw e1;
+    }
+    if(j&&j.id){ p.evId=j.id; p.evDirty=false; saveLocal(); return {ok:true}; }
+    p.evDirty=true; return {ok:false,why:"no-id"};
+  }catch(e){
+    p.evDirty=true;
+    if(e.message==="auth"){dropTok();drive.needsAuth=true;}
+    if(!quiet) toast("שליחה ליומן נכשלה: "+(e.message||"שגיאה"));
+    return {ok:false,why:e.message||"err"};
+  }
 }
 async function gcalDelete(p){
   if(!p||!p.evId||!drive.token) return;
@@ -1020,11 +1038,18 @@ async function gcalPull(m){
     toast("המשיכה מהיומן נכשלה: "+(e.message||"שגיאה")); }
 }
 async function gcalSyncMonth(m){
-  if(!DB.settings.gcal){toast("קודם להפעיל סנכרון יומן בהגדרות");return;}
+  if(!gReady()){toast("החיבור לגוגל זמין רק מהאתר שלך");return;}
+  /* לחיצה על הכפתור היא ההסכמה — אין צורך להדליק קודם הגדרה */
+  if(!DB.settings.gcal){ DB.settings.gcal=true; saveLocal(); }
   if(!drive.token){ gAuth(ok=>{ if(ok) gcalSyncMonth(m); },false); return; }
-  const list=DB.plans.filter(p=>monthOf(p.date)===m);
-  for(const p of list){ await gcalUpsert(p); }
-  toast("סונכרנו "+list.length+" משבצות ליומן");
+  const list=DB.plans.filter(p=>monthOf(p.date)===m&&!p.done);
+  if(!list.length){ toast("אין תכנון בחודש הזה"); return; }
+  let okN=0, bad=0, lastErr="";
+  for(const p of list){ const r=await gcalUpsert(p,true);
+    if(r&&r.ok) okN++; else { bad++; lastErr=(r&&r.why)||""; } }
+  saveLocal(); renderAll(); showTab("cal");
+  if(bad) toast(okN+" נשלחו ליומן, "+bad+" נכשלו"+(lastErr?" ("+lastErr+")":""));
+  else toast("כל "+okN+" המשבצות ביומן ✓");
 }
 
 /* ============ save reports to a folder ============ */
@@ -1686,8 +1711,12 @@ function viewCal(){
   <div class="row noprint">
     <label>חודש <select id="calM">${opts(months,cur)}</select></label>
     <button class="ghost" id="calPrev">‹ הקודם</button><button class="ghost" id="calNext">הבא ›</button>
-    <button class="ghost" id="calGsync">📅 שליחת התכנון ליומן גוגל</button>
+    <button class="${gcalPending(cur).length?"act":"ghost"}" id="calGsync">📅 שליחת התכנון ליומן גוגל</button>
     <button class="ghost" id="calGpull">⬇ משיכת משבצות תפוסות מהיומן</button>
+    ${(()=>{const n=gcalPending(cur).length;
+      if(!DB.settings.gcal) return `<span class="mute">סנכרון היומן כבוי — לחיצה על השליחה תפעיל אותו</span>`;
+      return n?`<span class="flag">${n} משבצות טרם נשלחו ליומן</span>`
+              :`<span class="ok">כל התכנון ביומן ✓</span>`;})()}
   </div>
   <div class="cards">
     ${card("מתוכנן החודש",`<span style="color:#0d6cb4">${f1(planned)}</span>`,
@@ -2587,7 +2616,7 @@ window.planEdit=(id,k,v)=>{const p=DB.plans.find(x=>x.id===id); if(!p) return;
   if(S.tab==="tasks"&&p.taskId) editTask(p.taskId);
   toast("התכנון עודכן");};
 window.planMove=(id,d)=>{const p=DB.plans.find(x=>x.id===id); if(!p||!d||d===p.date) return;
-  p.date=d; if(p.evId) gcalUpsert(p);
+  p.date=d; gcalUpsert(p,true);
   saveLocal(); S.calDay=d; S.calMonth=monthOf(d); renderAll(); showTab("cal");
   toast("הועבר ל"+heDate(d));};
 window.delClient=id=>{
@@ -2640,7 +2669,7 @@ function wireTaskForm(t){
     if(h>av+0.001&&!confirm("נותר לתכנון "+f1(av)+" שעות בלבד. לתכנן בכל זאת "+f1(h)+"?")) return;
     const pl={id:uid(),taskId:t.id,date:d,hours:h,start:st};
     DB.plans.push(pl);
-    if(DB.settings.gcal&&drive.token) gcalUpsert(pl);
+    gcalUpsert(pl,true);
     saveLocal(); S.calDay=d; S.calMonth=monthOf(d);
     renderAll(); editTask(t.id); toast("נוסף ללוח ב"+heDate(d));};
   const more=$("#fMoreGo");
@@ -2843,7 +2872,7 @@ function wire(){
     const np={id:uid(),taskId:tid,date:S.calDay,hours:h,start:(($("#pStart")||{}).value||"09:00")};
     DB.plans.push(np);
     saveLocal();renderAll();showTab("cal");toast("נוסף לתכנון");
-    if(DB.settings.gcal) gcalUpsert(np);};
+    gcalUpsert(np,true);};
   if(el("inclGen")) el("inclGen").onchange=e=>{DB.settings.inclGeneral=e.target.checked;
     saveLocal();renderAll();showTab("status");};
   if(el("rateMode")) el("rateMode").onchange=e=>{S.rateMode=e.target.value;renderAll();showTab("status");};
@@ -3097,7 +3126,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.86.0";
+const VER="3.87.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
