@@ -1339,20 +1339,40 @@ function viewStatus(){
     <label><input type="checkbox" id="inclGen" ${DB.settings.inclGeneral?"checked":""}> כולל כלליות</label>
   </div>
   <h2>דורש טיפול (${attention.length})</h2>
-  ${attention.length?table(["לקוח","שנה","סוג","סטטוס","סיבה","החלק שלך","הערה","טיפול"],
+  ${attention.length?table(["לקוח","שנה","מוצר","אצל מי","הגשה","תכנון","גבייה","שעות בפועל","החלק שלך","סיבה","הערה","טיפול"],
     attention.map(a=>{const t=a.t;
-      return [tName(t),t.year,t.type,t.submit,
-        (a.kind==="bill"||a.kind==="zero")?`<span class="flag">${a.why}</span>`:`<span class="warn">${a.why}</span>`,
+      const planned=t.id&&DB.plans.some(p=>p.taskId===t.id&&!p.done);
+      return [tName(t),t.year,t.type,
+        t.work==="מול הלקוח"?'<span class="ok">מול הלקוח</span>'
+          :(t.work==="אצלי"?'<span class="warn">אצלי</span>':esc(t.work||"")),
+        t.submit,
+        t.work==="אצלי"?(planned?'<span class="ok">מתוכנן</span>':'<span class="flag">לא מתוכנן</span>'):"—",
+        t.noBill?'<span class="mute">לא לגבייה</span>'
+          :(t.id&&billedTask(t.id)?'<span class="ok">נדרש</span>':'<span class="flag">טרם נדרש</span>'),
+        t.id?f1(taskHours(t.id)):"",
         f0(taskMine(t)),
+        (a.kind==="bill"||a.kind==="zero")?`<span class="flag">${a.why}</span>`:`<span class="warn">${a.why}</span>`,
         t.id?`<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`:"",
         (a.kind==="zero"
           ? `<button class="mini" onclick="editBill('${a.bill.id}')">פתיחת הדרישה</button>`
           : a.kind==="bill"
             ? `<button class="mini" onclick="quickBill('${t.id}')">➕ לדרישת תשלום</button>`
             : `<button class="mini" onclick="planTask('${t.id}')">תכנון בלוח</button>`)+
-        (t.id?` <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`:"")];}),null,[0,4,5,7])
-    +`<div class="mute">משימות שהסתיימו וטרם נדרש עליהן תשלום, משימות פתוחות ללא יעד הגשה, ומשימות שהיעד שלהן עבר.</div>`
+        (t.id?` <button class="mini" onclick="editTask('${t.id}')">עריכה</button>`:"")];}),null,[0,3,5,6,9,11])
+    +`<div class="mute">משימות שהסתיימו וטרם נדרש עליהן תשלום, משימות אצלי בלי תכנון בלוח,
+       משימות פתוחות ללא יעד הגשה, ומשימות שהיעד שלהן עבר.</div>`
    :`<div class="panel"><span class="ok">אין משימות שדורשות טיפול ✓</span></div>`}
+  ${(()=>{const cl=open.filter(t=>t.work==="מול הלקוח")
+      .sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
+    if(!cl.length) return "";
+    return `<h2>אצל הלקוח — לא תקוע אצלי (${cl.length})</h2>`+
+      table(["לקוח","שנה","מוצר","הגשה","יעד הגשה","צפי","שעות בפועל","גבייה","הערה","טיפול"],
+        cl.map(t=>[tName(t),t.year,t.type,t.submit,heDate(t.sched),f1(t.est),f1(taskHours(t.id)),
+          t.noBill?'<span class="mute">לא לגבייה</span>'
+            :(billedTask(t.id)?'<span class="ok">נדרש</span>':'<span class="flag">טרם נדרש</span>'),
+          `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${
+            t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
+          `<button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]),null,[0,3,6,9]);})()}
   <h2>מגמה חודשית</h2>
   ${table(["חודש","שעות","כלליות","ימי משרד","שכ\"ט שנדרש","החלק שלך","נסיעות","לגבייה"],
     monthsList().map(m=>{const s=monthSummary(m);
@@ -1565,7 +1585,8 @@ function viewCal(){
 }
 function dayPanel(k){
   const inf=dayInfo(k), ps=DB.plans.filter(p=>p.date===k), ts=DB.time.filter(t=>t.date===k), bs=busyOn(k);
-  const tasks=takenTasks().filter(isOpen).sort((a,b)=>clientName(a.clientId).localeCompare(clientName(b.clientId),"he"));
+  const tasks=takenTasks().filter(t=>isOpen(t)&&t.work==="אצלי"&&num(t.est)>0)
+    .sort((a,b)=>clientName(a.clientId).localeCompare(clientName(b.clientId),"he"));
   return `<div class="panel">
     <b>${heDate(k)} · ${DAYS[new Date(k).getDay()]}${inf.label?" · "+inf.label:""}</b>
     <div class="row">
@@ -1586,7 +1607,8 @@ function dayPanel(k){
     ${ts.length?`<div class="mute">שעות שנרשמו: ${ts.map(t=>{const k2=t.taskId?taskById(t.taskId):null;
       return esc((k2?clientName(k2.clientId):"כלליות")+" "+f1(t.hours));}).join(" · ")}</div>`:""}
     ${(()=>{const av=tasks.filter(t=>availableFor(t)>0);
-      if(!av.length) return `<div class="mute" style="margin-top:6px">כל המשימות הפתוחות כבר מתוכננות במלוא צפי השעות. כדי לתכנן עוד, צריך להגדיל את צפי השעות במשימה.</div>`;
+      if(!av.length) return `<div class="mute" style="margin-top:6px">אין משימות זמינות לתכנון. ללוח נכנסות רק משימות פתוחות
+        שסטטוס העבודה שלהן <b>אצלי</b>, שיש להן צפי שעות, ושנותרו בהן שעות שטרם תוכננו.</div>`;
       const first=av[0];
       return `<div class="grid2" style="margin-top:6px">
         <label style="grid-column:1/-1">הוספת תכנון<select id="pTask">${opts(av.map(t=>({v:t.id,t:taskLabel(t)+" · נותרו לתכנון "+f1(availableFor(t))})),"")}</select></label>
@@ -2897,7 +2919,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.71.0";
+const VER="3.72.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
