@@ -372,7 +372,12 @@ function monthSummary(m){
 const GCLIENT="466114716813-rs3j8kcvj6ccljabgae4je8ktos0ehft.apps.googleusercontent.com";
 const GSCOPE="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events";
 const DKEY="cpa-system-drive";
-const drive={token:null,exp:0,auto:true,silentTried:false,needsAuth:false};
+const drive={token:null,exp:0,auto:true,silentTried:false,needsAuth:false,busyAuth:false};
+const TKEY="cpa-gtok";
+(function restoreTok(){ try{ const t=JSON.parse(sessionStorage.getItem(TKEY)||"null");
+  if(t&&t.token&&t.exp>Date.now()+30000){ drive.token=t.token; drive.exp=t.exp; } }catch(e){} })();
+function keepTok(){ try{ sessionStorage.setItem(TKEY,JSON.stringify({token:drive.token,exp:drive.exp})); }catch(e){} }
+function dropTok(){ drive.token=null; drive.exp=0; try{sessionStorage.removeItem(TKEY);}catch(e){} }
 const dState=()=>{try{return JSON.parse(localStorage.getItem(DKEY)||"{}")}catch(e){return{}}};
 const dSave=o=>localStorage.setItem(DKEY,JSON.stringify(Object.assign(dState(),o)));
 function dInfo(t,bad){const e=$("#dmsg");if(e)e.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:esc(t);}
@@ -382,34 +387,38 @@ function gReady(){
   return true;}
 function gAuth(cb,silent){
   if(!gReady())return;
+  if(drive.token&&drive.exp>Date.now()+30000){ cb&&cb(true); return; }
+  if(drive.busyAuth){ cb&&cb(false); return; }
   if(silent&&drive.silentTried){ cb&&cb(false); return; }
   if(silent) drive.silentTried=true;
+  drive.busyAuth=true;
   let hint=""; try{hint=localStorage.getItem("cpa-gmail")||"";}catch(e){}
   google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
     hint:hint||undefined, select_account:false,
     callback:r=>{
       if(r&&r.access_token){
+        drive.busyAuth=false;
         drive.token=r.access_token;
         drive.exp=Date.now()+((+r.expires_in||3000)*1000)-60000;
-        drive.needsAuth=false;
+        drive.needsAuth=false; keepTok();
         (async()=>{try{const rr=await gFetch("https://www.googleapis.com/drive/v3/about?fields=user");
           const jj=await rr.json(); if(jj&&jj.user&&jj.user.emailAddress)
             localStorage.setItem("cpa-gmail",jj.user.emailAddress);}catch(e){}})();
         const sc=r.scope||"";
         if(sc&&sc.indexOf("drive.file")<0&&!silent){ dInfo("חסרה הרשאת כתיבה לדרייב — לאשר את שתי ההרשאות במסך של גוגל",true); }
         cb&&cb(true);
-      } else { drive.needsAuth=true;
+      } else { drive.busyAuth=false; drive.needsAuth=true; setHdr();
         if(!silent) dInfo("ההתחברות לא הושלמה: "+((r&&r.error)||"נסגר החלון"),true);
         cb&&cb(false); }
     }
-  }).requestAccessToken({prompt:silent?"":"consent"});
+  }).requestAccessToken({prompt:""});
 }
 async function gFetch(url,opt){
-  if(drive.exp&&Date.now()>drive.exp){ drive.token=null; throw new Error("auth"); }
+  if(drive.exp&&Date.now()>drive.exp){ dropTok(); throw new Error("auth"); }
   const o=opt||{};o.headers=Object.assign({Authorization:"Bearer "+drive.token},o.headers||{});
   const r=await fetch(url,o);
-  if(r.status===401){drive.token=null;throw new Error("auth");}
-  if(r.status===403){drive.token=null;throw new Error("אין הרשאה (403) — לאשר גישה לדרייב");}
+  if(r.status===401){dropTok();throw new Error("auth");}
+  if(r.status===403){dropTok();throw new Error("אין הרשאה (403) — לאשר גישה לדרייב");}
   if(!r.ok) throw new Error("שגיאת דרייב "+r.status);
   return r;
 }
@@ -429,7 +438,9 @@ async function driveSave(silent){
     const j=await r.json(); dSave({dataId:j.id,saved:Date.now()});
     if(!silent) dInfo("נשמר בדרייב ✓");
     setHdr();
-  }catch(e){ if(e.message==="auth"){gAuth(()=>driveSave(silent));return;} dInfo("השמירה נכשלה: "+e.message,true);}
+  }catch(e){ if(e.message==="auth"){ drive.needsAuth=true; setHdr();
+      if(!silent) dInfo("פג תוקף החיבור לגוגל — יש ללחוץ על \"התחבר לגוגל\"",true); return; }
+    dInfo("השמירה נכשלה: "+e.message,true);}
 }
 let syncBusy=false, lastSync=0;
 function gAuthSilent(cb){ gAuth(cb,true); }
@@ -443,8 +454,8 @@ async function driveSync(manual){
       return;
     }
     dInfo("מתחבר לגוגל…");
-    gAuth(ok=>{ if(ok){drive.silentTried=false; driveSync(true);} },true);
-    setTimeout(()=>{ if(!drive.token) gAuth(ok=>{ if(ok) driveSync(true); },false); },1200);
+    drive.silentTried=false;
+    gAuth(ok=>{ if(ok) driveSync(true); else dInfo("ההתחברות בוטלה",true); },false);
     return; }
   syncBusy=true;
   try{
@@ -468,7 +479,8 @@ async function driveSync(manual){
   }catch(e){
     drive.token=(e.message==="auth")?null:drive.token;
     if(manual) dInfo("הסנכרון נכשל: "+(e.message||"שגיאה")+" — אפשר לנסות שוב",true);
-    syncBusy=false; if(manual&&e.message==="auth"){ gAuth(ok=>{ if(ok) driveSync(true); }); }
+    syncBusy=false; if(e.message==="auth"){ drive.needsAuth=true; setHdr();
+      if(manual) dInfo("פג תוקף החיבור לגוגל — יש ללחוץ על \"התחבר לגוגל\"",true); }
     return;
   }
   if(manual) dInfo("סונכרן ✓");
@@ -1647,13 +1659,16 @@ function viewData(){
   const st=dState();
   return `<h2>נתונים וגיבוי</h2>
   <div class="panel">
-    <div class="row"><button class="act" id="dSyncBtn">🔄 סנכרון עכשיו</button>
+    <div class="row">${drive.token?`<span class="ok">מחובר לגוגל ✓</span>`
+        :`<button class="act" id="dConnect">🔑 התחבר לגוגל</button>`}
+      <button class="${drive.token?"act":"ghost"}" id="dSyncBtn">🔄 סנכרון עכשיו</button>
       <button class="ghost" id="dSaveBtn">שמירה לדרייב</button>
       <button class="ghost" id="dLoadBtn">טעינה מהדרייב</button>
       <label><input type="checkbox" id="dAuto" ${drive.auto?"checked":""}> סנכרון אוטומטי</label>
-      <label><input type="checkbox" id="dBoot" ${(()=>{let v=true;try{v=localStorage.getItem("cpa-bootauth")!=="0";}catch(e){}return v?"checked":"";})()}> חיבור אוטומטי בפתיחה</label>
       <button class="ghost" id="dDiag">בדיקת חיבור</button></div>
-    <div class="mute">הסנכרון פועל בפתיחת המערכת, בכל חזרה למסך ובכל שינוי. המכשיר עם העדכון האחרון קובע.</div>
+    <div class="mute">ההתחברות לגוגל נעשית בלחיצה שלך בלבד — המערכת לא פותחת חלון התחברות מעצמה.
+      אחרי התחברות אחת החיבור נשמר לכל זמן העבודה בדפדפן, והסנכרון פועל ברקע בכל שינוי.
+      המכשיר עם העדכון האחרון קובע.</div>
     <div id="dmsg" class="mute">${st.saved?"נשמר לאחרונה: "+new Date(st.saved).toLocaleString("he-IL"):"טרם נשמר בדרייב"}</div>
   </div>
   <h2>ייבוא ראשוני מקובץ האקסל</h2>
@@ -2195,9 +2210,9 @@ function wire(){
     dInfo(L.join(" · "));};
   if(el("dSaveBtn")) el("dSaveBtn").onclick=()=>driveSave(false);
   if(el("dLoadBtn")) el("dLoadBtn").onclick=driveLoad;
+  if(el("dConnect")) el("dConnect").onclick=()=>{ drive.silentTried=false; dInfo("מתחבר לגוגל…");
+    gAuth(ok=>{ if(ok){ dInfo("מחובר ✓"); renderAll(); setHdr(); driveSync(true); } },false); };
   if(el("dAuto")) el("dAuto").onchange=e=>{drive.auto=e.target.checked;};
-  if(el("dBoot")) el("dBoot").onchange=e=>{try{localStorage.setItem("cpa-bootauth",e.target.checked?"1":"0");}catch(err){}
-    toast(e.target.checked?"יתחבר אוטומטית בפתיחה":"לא יתחבר בפתיחה — סנכרון ידני בלבד");};
   if(el("pwSet")) el("pwSet").onclick=()=>{
     const cfg=lockCfg(), msg=$("#pwMsg");
     const nw=$("#pwNew").value, nw2=$("#pwNew2").value;
@@ -2261,12 +2276,17 @@ function startTick(){
 }
 function setHdr(){
   const st=dState();
-  const sync=drive.needsAuth?"לא מחובר לדרייב"
+  const sync=drive.needsAuth?"לא מחובר לגוגל — לחצי כאן להתחברות"
     :(st.synced?("מסונכרן "+new Date(st.synced).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})):"לא מסונכרן");
-  $("#hdr").textContent="גרסה "+VER+" · "+sync+" · "+
+  const h=$("#hdr");
+  h.textContent="גרסה "+VER+" · "+sync+
     (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
+  h.style.cursor=drive.needsAuth?"pointer":"default";
+  h.style.textDecoration=drive.needsAuth?"underline":"none";
+  h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
+    gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.60.0";
+const VER="3.61.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -2297,8 +2317,7 @@ function boot(){
   if(!ok){ showLock(); return; }
   if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
   renderAll();
-  let bootAuth=true; try{bootAuth=localStorage.getItem("cpa-bootauth")!=="0";}catch(e){}
-  if(bootAuth) setTimeout(()=>driveSync(false),1200);
+  if(drive.token) setTimeout(()=>driveSync(false),800); else { drive.needsAuth=true; setHdr(); }
   window.addEventListener("focus",()=>{ if(drive.token&&Date.now()-lastSync>60000) driveSync(false); });
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&drive.token&&Date.now()-lastSync>60000) driveSync(false); });
   setInterval(()=>{ if(drive.token) driveSync(false); },180000);
