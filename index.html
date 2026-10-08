@@ -44,15 +44,17 @@ h2:first-child{margin-top:0}
  max-width:100%;width:100%}
 table{width:100%;min-width:0;border-collapse:collapse;font-size:13px;table-layout:auto}
 /* טקסט נשבר לשורה שנייה כדי שהטבלה תיכנס למסך; מספרים ותאריכים לא נשברים */
+/* ככלל: מילה שלמה עוברת לשורה הבאה, לעולם לא נשברת באמצע */
 th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--line);
- white-space:normal;overflow-wrap:anywhere;word-break:normal}
-th.num,td.num{white-space:nowrap;overflow-wrap:normal}
+ white-space:normal;overflow-wrap:break-word;word-break:keep-all;hyphens:none}
+th{white-space:nowrap}
+th.num,td.num,td.nw,th.nw{white-space:nowrap;overflow-wrap:normal}
 /* עמודת הפעולות תמיד צמודה לקצה ונגישה ללחיצה גם אם הטבלה רחבה */
 .scroll table td.act,.scroll table th.act{position:sticky;left:0;z-index:2;background:var(--panel);
  box-shadow:-6px 0 6px -6px rgba(16,48,110,.18);white-space:nowrap;padding-left:7px;padding-right:7px}
 .scroll table th.act{background:var(--accent-2);z-index:3}
 .scroll table tfoot td.act{background:#eaf4fe}
-td[data-l="הערה"]{white-space:normal;max-width:240px;overflow-wrap:anywhere;color:var(--ink-2)}
+td[data-l="הערה"]{white-space:normal;overflow-wrap:break-word;word-break:keep-all;color:var(--ink-2)}
 @media (max-width:680px){ .scroll table td.act,.scroll table th.act{box-shadow:none;position:static} }
 @media print{ .scroll table td.act,.scroll table th.act{position:static;box-shadow:none} }
 th{background:var(--accent-2);color:var(--accent-d);font-size:12px;font-weight:700;position:sticky;top:0}
@@ -66,10 +68,11 @@ button.act{background:linear-gradient(180deg,#1b9bef,#0d7fd0);color:#fff;border:
 button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font:inherit;cursor:pointer}
 button.mini{background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 8px;font:inherit;font-size:13px;cursor:pointer}
 button.danger{color:var(--bad)}
-.note{display:inline-block;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
- vertical-align:bottom;cursor:pointer;color:var(--ink)}
+/* ההערה מוצגת במלואה — בלי קיצור ובלי שבירת מילים */
+.note{display:inline;white-space:normal;overflow-wrap:break-word;word-break:keep-all;
+ cursor:pointer;color:var(--ink)}
 .note:hover{text-decoration:underline}
-@media (max-width:680px){.note{max-width:120px}}
+
 .flag{color:var(--bad);font-weight:600}.ok{color:var(--good)}.mute{color:var(--ink-2);font-size:13px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:6px;max-width:820px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
@@ -117,7 +120,9 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .pd-tbl th{background:var(--accent-2);color:var(--accent-d);text-align:right;padding:7px 9px;
  border-bottom:1.5px solid #a9d6f7;font-size:12.5px;position:static}
 .pd-tbl td{padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top;white-space:normal}
-.pd-tbl .n{text-align:left;white-space:nowrap}.pd-tbl .c{text-align:center;width:58px}
+.pd-tbl .n{text-align:left;white-space:nowrap}.pd-tbl .c{text-align:center;width:72px;white-space:nowrap}
+.pd-tbl tfoot td{background:#eaf4fe;font-weight:700;border-top:2px solid var(--ink)}
+.pd-tbl td,.pd-tbl th{overflow-wrap:break-word;word-break:keep-all}
 .pd-sum{margin:14px 0 0;margin-right:auto;width:min(330px,100%);font-size:14px}
 .pd-sum>div{display:flex;justify-content:space-between;gap:12px;padding:5px 2px;border-bottom:1px solid var(--line)}
 .pd-sum>div.big{border-bottom:none;border-top:2px solid var(--ink);margin-top:3px;padding-top:8px;
@@ -231,8 +236,9 @@ body.clean h2{font-size:15px}
  th[data-l="אצל מי"],td[data-l="אצל מי"],th[data-l="תכנון"],td[data-l="תכנון"],
  th[data-l="גבייה"],td[data-l="גבייה"],th[data-l="מצב"],td[data-l="מצב"]{width:1%;white-space:nowrap}
  th[data-l="הערה"],td[data-l="הערה"]{width:auto;white-space:normal;max-width:none!important}
- th,td{padding:3px 4px;white-space:normal;word-break:normal;overflow-wrap:break-word;
+ th,td{padding:3px 4px;white-space:normal;word-break:keep-all;overflow-wrap:break-word;
    hyphens:none;border-bottom:1px solid #ddd;vertical-align:top}
+ th{white-space:normal}
  button,.mini,.act,.ghost,input,select{display:none!important}
  td:empty{padding:0}
  .cards{break-inside:avoid;page-break-inside:avoid}
@@ -1110,13 +1116,17 @@ function payDoc(m,clientId,detail,sel){
     const cid=b.clientId||((b.taskId&&taskById(b.taskId))||{}).clientId;
     const t=b.taskId?taskById(b.taskId):null;
     const vr=vatRate(b);
-    billComp(b).forEach(c=>lines.push({who:cid?clientName(cid):"—",
+    const hrs=b.taskId?taskHours(b.taskId):billHours(b);
+    billComp(b).forEach((c,ci)=>lines.push({who:cid?clientName(cid):"—",
       what:(t?(t.type+" "+(t.year||"")):(b.year||""))+" · "+c.label,
+      hours:ci===0?hrs:0, showH:ci===0&&hrs>0,
       amount:c.amount,vat:c.vat&&vr>0,rate:vr}));
   });
   const trav=clientId?0:monthTravel(m);
-  if(trav>0) lines.push({who:"—",what:"החזר נסיעות",amount:r2(trav),vat:true,rate:num(S0.vat)});
+  if(trav>0) lines.push({who:"—",what:"החזר נסיעות",hours:0,showH:false,
+    amount:r2(trav),vat:true,rate:num(S0.vat)});
   const net=r2(lines.reduce((s,x)=>s+x.amount,0));
+  const totH=Math.round(lines.reduce((s,x)=>s+num(x.hours),0)*10)/10;
   const vat=r2(lines.reduce((s,x)=>s+(x.vat?x.amount*num(x.rate)/100:0),0));
   const tot=r2(net+vat);
   const d=new Date(), due=new Date(d.getTime()+num(S0.payDays||10)*86400000);
@@ -1124,17 +1134,21 @@ function payDoc(m,clientId,detail,sel){
     return ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"][+M-1]+" "+Y;})();
   let body;
   if(detail===false){
-    body=`<table class="pd-tbl"><thead><tr><th>פירוט</th><th class="n">סכום ₪</th></tr></thead><tbody>
+    body=`<table class="pd-tbl"><thead><tr><th>פירוט</th>${totH>0?'<th class="c">שעות בפועל</th>':""}
+      <th class="n">סכום ₪</th></tr></thead><tbody>
       <tr><td>שירותי ראיית חשבון — ${esc(heMonth)}${clientId?" · "+esc(clientName(clientId)):""}</td>
-        <td class="n">${f0(net)}</td></tr></tbody></table>`;
+        ${totH>0?`<td class="c">${f1(totH)}</td>`:""}<td class="n">${f0(net)}</td></tr></tbody></table>`;
   } else {
     /* עמודת מע"מ מוצגת רק כשיש ערבוב — אם הכול חייב או הכול פטור, היא מיותרת */
     const mixed=lines.some(x=>x.vat)&&lines.some(x=>!x.vat);
     const row=x=>`<tr><td>${esc(x.who)}</td><td>${esc(x.what)}</td>
+      <td class="c">${x.showH?f1(x.hours):""}</td>
       <td class="n">${f0(x.amount)}</td>${mixed?`<td class="c">${x.vat?"כן":"לא"}</td>`:""}</tr>`;
-    body=`<table class="pd-tbl"><thead><tr><th>לקוח</th><th>פירוט</th><th class="n">סכום ₪</th>${
-        mixed?'<th class="c">מע"מ</th>':""}</tr></thead>
-      <tbody>${lines.length?lines.map(row).join(""):'<tr><td colspan="4">אין שורות לתקופה זו</td></tr>'}</tbody></table>`;
+    body=`<table class="pd-tbl"><thead><tr><th>לקוח</th><th>פירוט</th><th class="c">שעות בפועל</th>
+      <th class="n">סכום ₪</th>${mixed?'<th class="c">מע"מ</th>':""}</tr></thead>
+      <tbody>${lines.length?lines.map(row).join(""):'<tr><td colspan="5">אין שורות לתקופה זו</td></tr>'}</tbody>
+      ${totH>0?`<tfoot><tr><td colspan="2">סה"כ</td><td class="c"><b>${f1(totH)}</b></td>
+        <td class="n"><b>${f0(net)}</b></td>${mixed?"<td></td>":""}</tr></tfoot>`:""}</table>`;
   }
   return `<div class="paydoc">
     <div class="pd-top">
@@ -1186,9 +1200,17 @@ function table(head,rows,foot,keep){
   const numCol=head.map((h,i)=>{
     const vals=rows.map(r=>plain(r[i])).filter(v=>v!==""&&v!=="—");
     return vals.length>0&&vals.every(v=>NUMCELL.test(v));});
+  /* עמודה שכל ערכיה קצרים לא נשברת כלל */
+  const nwCol=head.map((h,i)=>{
+    if(numCol[i]) return false;
+    const vals=rows.map(r=>plain(r[i]));
+    const longest=vals.reduce((a,v)=>Math.max(a,v.length),0);
+    const word=vals.reduce((a,v)=>Math.max(a,...v.split(/\s+/).map(x=>x.length)),0);
+    return longest<=16||word<=8;});
   const cls=(i,extra)=>{const c=[];
     if(keep&&keep.length&&keep.indexOf(i)<0) c.push("m-hide");
     if(numCol[i]) c.push("num");
+    else if(nwCol[i]) c.push("nw");
     if(actCol&&i===lastI) c.push("act");
     if(extra) c.push(extra);
     return c.length?' class="'+c.join(" ")+'"':'';};
@@ -1451,16 +1473,18 @@ function viewStatus(){
             t.notes?esc(t.notes):'<span class="mute">+ הערה</span>'}</span>`,
           `<button class="mini" onclick="editTask('${t.id}')">עריכה</button>`]),null,[0,3,6,9]);})()}
   <h2>מגמה חודשית</h2>
-  ${(()=>{const ms=monthsList(), rows=ms.map(m=>monthSummary(m));
-    const sum=f=>rows.reduce((a,x)=>a+f(x),0);
-    const demanded=sum(s=>s.mine);
-    return table(["חודש","שעות","כלליות","ימי משרד","שכ\"ט שנדרש","נסיעות","לגבייה"],
-      ms.map((m,i)=>{const s=rows[i];
-        return [m,f1(s.hours),f1(s.gen),officeDays(m),f0(s.mine),f0(s.travel),f0(s.due)];}),
-      ["סה\"כ",f1(sum(s=>s.hours)),f1(sum(s=>s.gen)),ms.reduce((a,m)=>a+officeDays(m),0),
-       f0(demanded),f0(sum(s=>s.travel)),f0(sum(s=>s.due))],[0,1,4,6])
-      +`<div class="mute">שכ"ט שנדרש = החלק שלך בדרישות שכבר הוצאו, ללא נסיעות — ${f0(demanded)} ₪.
-        ועוד ${f0(notBilledSum)} ₪ שטרם נדרשו = <b>${f0(demanded+notBilledSum)} ₪</b>, בדיוק כמו בקוביית "חלקי".</div>`;})()}
+  ${(()=>{
+    const pend={}; let pendNo=0;
+    notBilled.forEach(t=>{const mm=t.sched?monthOf(t.sched):"";
+      if(mm) pend[mm]=(pend[mm]||0)+taskMine(t); else pendNo+=taskMine(t);});
+    const ms=[...new Set([...monthsList(),...Object.keys(pend)])].sort();
+    const rws=ms.map(m=>{const x=monthSummary(m), p=pend[m]||0;
+      return [m,f1(x.hours),f1(x.gen),officeDays(m),f0(x.mine+p),f0(x.travel),f0(x.due)];});
+    if(pendNo>0) rws.push(["ללא יעד הגשה","","","",f0(pendNo),"",""]);
+    const sum=f=>ms.reduce((a,m)=>a+f(monthSummary(m)),0);
+    return table(["חודש","שעות","כלליות","ימי משרד","חלקי","נסיעות","לגבייה"],rws,
+      ["סה\"כ",f1(sum(x=>x.hours)),f1(sum(x=>x.gen)),ms.reduce((a,m)=>a+officeDays(m),0),
+       f0(sum(x=>x.mine)+notBilledSum),f0(sum(x=>x.travel)),f0(sum(x=>x.due))],[0,1,4,6]);})()}
 `;
 }
 function taskRow(t){
@@ -2383,17 +2407,32 @@ function exportXlsx(){
       return {wch:Math.min(Math.max(w+2,8),45)};});
     ws["!freeze"]={xSplit:"0",ySplit:"1",topLeftCell:"A2",activePane:"bottomLeft",state:"frozen"};
     XLSX.utils.book_append_sheet(wb,ws,name);};
-  add("תיקים",[["לקוח","שנה","סוג","סטטוס עבודה","סטטוס הגשה","לו\"ז","שכ\"ט משרד","תוספת נטו","החלק שלך","צפי שעות","שעות בפועל","שעות שנותרו","נדרש תשלום"],
-    ...DB.tasks.map(t=>[clientName(t.clientId),t.year,t.type,t.work,t.submit,t.sched||"",num(t.fee),num(t.extra),
-      taskMine(t),num(t.est),taskHours(t.id),taskRemaining(t),billedTask(t.id)?"כן":"לא"])]);
-  add("שעות",[["תאריך","לקוח","שנה","סוג","תיאור","שעות"],
+  add("תיקים",[["לקוח","החלטה","שנה","סוג","סטטוס עבודה","סטטוס הגשה","לו\"ז","שכ\"ט משרד","תוספת נטו","חלקי","צפי שעות","שעות בפועל","שעות שנותרו","נדרש תשלום"],
+    ...DB.tasks.map(t=>[tName(t),t.decision||"לקחתי",t.year,t.type,t.work,t.submit,t.sched||"",
+      num(t.fee),num(t.extra),mineEff(t),num(t.est),taskHours(t.id),taskRemaining(t),
+      t.noBill?"לא לגבייה":(billedTask(t.id)?"כן":"לא")])]);
+  add("שעות",[["תאריך","לקוח","שנה","סוג","מקום","תיאור","שעות"],
     ...DB.time.map(x=>{const t=x.taskId?taskById(x.taskId):null;
-      return [x.date,t?clientName(t.clientId):"כלליות",t?t.year:"",t?t.type:"",x.desc||"",num(x.hours)];})]);
-  add("דרישות תשלום",[["חודש","לקוח","שנה","תאריך","שכ\"ט משרד","שכ\"ט נוסף","הסכום שלך","הערה"],
-    ...DB.bills.map(b=>[b.month,clientName(b.clientId||(b.taskId&&(taskById(b.taskId)||{}).clientId)),b.year,b.date,
-      num(b.fee),num(b.extra),billAmount(b),b.note||""])]);
-  add("סיכום חודשי",[["חודש","שעות","כלליות","שכ\"ט","נוסף","החלק שלך","נסיעות","לגבייה"],
-    ...monthsList().map(m=>{const s=monthSummary(m);return [m,s.hours,s.gen,s.fee,s.extra,s.mine,s.travel,s.due];})]);
+      return [x.date,t?tName(t):"כלליות",t?t.year:"",t?t.type:"",x.office?"משרד":"בית",
+        x.desc||"",num(x.hours)];})]);
+  add("דרישות תשלום",[["חודש","לקוח","שנה","תאריך","שכ\"ט משרד","תוספת","לפי שעות","שכ\"ט מלא",
+      "שעות בפועל","לפני מע\"מ","מע\"מ","סה\"כ לתשלום","שולם","יתרה","מצב","הערה"],
+    ...DB.bills.map(b=>{const t=b.taskId?taskById(b.taskId):null;
+      const cid=b.clientId||(t&&t.clientId);
+      return [b.month,cid?clientName(cid):(t?tName(t):""),b.year,b.date,
+        b.use?(b.use.share?num(b.fee):0):num(b.fee),billPart(b,"extra"),billPart(b,"rate"),billPart(b,"other"),
+        b.use&&!b.use.rate?0:billHours(b),
+        billAmount(b),billVat(b),billTotal(b),billPaid(b),billDue(b),billStatus(b),b.note||""];})]);
+  add("סיכום חודשי",[["חודש","שעות","כלליות","ימי משרד","נדרש","טרם נדרש","חלקי","מע\"מ","נסיעות","לגבייה"],
+    ...(()=>{const mine2=takenTasks().filter(t=>!billedTask(t.id));
+      const pend={}; mine2.forEach(t=>{const mm=t.sched?monthOf(t.sched):"";
+        if(mm) pend[mm]=(pend[mm]||0)+taskMine(t);});
+      const ms=[...new Set([...monthsList(),...Object.keys(pend)])].sort();
+      return ms.map(m=>{const x=monthSummary(m), p=pend[m]||0;
+        return [m,x.hours,x.gen,officeDays(m),x.mine,p,x.mine+p,x.vat,x.travel,x.due];});})()]);
+  add("בדיקות כדאיות",[["שם","שנה","מוצר","החלטה","סיבה","שכ\"ט משרד","צפי שעות דקל","הערה"],
+    ...DB.tasks.filter(t=>t.decision==="בבדיקה"||t.decision==="לא לקחתי"||t.checkedAt)
+      .map(t=>[tName(t),t.year,t.type,t.decision||"",t.checkNote||"",num(t.fee),num(t.dekelEst),t.notes||""])]);
   XLSX.writeFile(wb,"דוחות-"+iso(today())+".xlsx");
 }
 window.editTask=id=>{const t=taskById(id);S.editTask=id;renderAll();showTab("tasks");
@@ -3042,7 +3081,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.84.0";
+const VER="3.85.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
