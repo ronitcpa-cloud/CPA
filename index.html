@@ -1298,6 +1298,8 @@ function viewStatus(){
   const needBill=mine.filter(t=>(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id))
     .map(t=>({t,why:"טרם נדרש תשלום",kind:"bill"}));
   const noDate=open.filter(t=>!t.sched).map(t=>({t,why:"ללא יעד הגשה",kind:"plan"}));
+  const noPlan=open.filter(t=>t.work==="אצלי"&&!DB.plans.some(p=>p.taskId===t.id&&!p.done))
+    .map(t=>({t,why:"אצלי ואין לה תכנון בלוח",kind:"plan"}));
   const workedNotBilled=open.filter(t=>taskHours(t.id)>0&&!billedTask(t.id))
     .map(t=>({t,why:"בוצעו "+f1(taskHours(t.id))+" שעות וטרם נדרש תשלום",kind:"bill"}));
   const latePlan=open.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר ("+heDate(t.sched)+")",kind:"plan"}));
@@ -1305,7 +1307,7 @@ function viewStatus(){
     const t=b.taskId?taskById(b.taskId):null;
     return {t:t||{id:"",clientId:b.clientId,year:b.year,type:"",submit:"דרישה",notes:""},
       bill:b,why:"דרישת תשלום על 0 ₪ — חסר שכ\"ט או שעות",kind:"zero"};});
-  const seen={}; const attention=[...needBill,...zeroBills,...workedNotBilled,...latePlan,...noDate]
+  const seen={}; const attention=[...needBill,...zeroBills,...workedNotBilled,...latePlan,...noPlan,...noDate]
     .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
   return `${printBtn()}${printHead("מצב פיננסי")}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
@@ -1470,6 +1472,23 @@ function taskForm(t){
       ${ent.length?`<details><summary>פירוט ${ent.length} רישומי שעות</summary>
         ${table(["תאריך","שעות","מקום","תיאור"],ent.map(x=>[heDate(x.date),f1(x.hours),x.office?"משרד":"בית",esc(x.desc||"")]))}
       </details>`:'<div class="mute">לא נרשמו שעות למשימה הזו</div>'}
+    </div>
+    <div class="panel" style="margin:6px 0;padding:8px 10px">
+      <b>תכנון בלוח החודשי</b>
+      ${(()=>{const mine2=DB.plans.filter(p=>p.taskId===t.id).sort((a,b)=>a.date<b.date?-1:1);
+        return mine2.length?table(["תאריך","יום","שעה","שעות","מצב",""],
+          mine2.map(p=>[heDate(p.date),DAYS[new Date(p.date).getDay()],esc(p.start||"09:00"),f1(p.hours),
+            p.done?'<span class="ok">בוצע ✓</span>':'<span class="mute">מתוכנן</span>',
+            `<button class="mini" onclick="planDone('${p.id}')">${p.done?"ביטול סימון":"בוצע"}</button>
+             <button class="mini danger" onclick="planDel('${p.id}')">מחיקה</button>`]))
+          :'<div class="mute">המשימה עדיין לא מתוכננת בלוח</div>';})()}
+      <div class="grid2" style="margin-top:6px">
+        <label>תאריך<input id="fPlDate" type="date" value="${iso(today())}"></label>
+        <label>שעת התחלה<input id="fPlStart" type="time" value="09:00"></label>
+        <label>שעות<input id="fPlHours" type="number" step="0.25" value="${f1(Math.min(2,avail||2))}"></label>
+      </div>
+      <div class="row"><button class="act" id="fPlAdd" type="button">➕ הוספה ללוח החודשי</button>
+        <span class="mute">נותר לתכנון ${f1(avail)} שעות${DB.settings.gcal?" · ייווצר גם אירוע ביומן גוגל":""}</span></div>
     </div>`;})():""}
   <div id="goNo" class="panel" style="margin:6px 0;padding:8px 10px">${num(t.est)>0?("₪ לשעה צפוי: "+f0(taskMine(t)/num(t.est))+" · יעד "+f0(DB.settings.target)):""}</div>
   <div class="row">
@@ -2414,6 +2433,18 @@ function wireTaskForm(t){
   $("#fCancel").onclick=()=>{$("#taskForm").innerHTML="";};
   const sel=$("#fClient"); const wrap=$("#newWrap");
   if(sel) sel.onchange=()=>{wrap.style.display=sel.value==="__new"?"":"none";};
+  const pAddBtn=$("#fPlAdd");
+  if(pAddBtn&&t&&t.id) pAddBtn.onclick=()=>{
+    const d=$("#fPlDate").value, h=+$("#fPlHours").value||0, st=$("#fPlStart").value||"09:00";
+    if(!d){toast("צריך לבחור תאריך");return;}
+    if(h<=0){toast("צריך להזין שעות");return;}
+    const av=availableFor(t);
+    if(h>av+0.001&&!confirm("נותר לתכנון "+f1(av)+" שעות בלבד. לתכנן בכל זאת "+f1(h)+"?")) return;
+    const pl={id:uid(),taskId:t.id,date:d,hours:h,start:st};
+    DB.plans.push(pl);
+    if(DB.settings.gcal&&drive.token) gcalUpsert(pl);
+    saveLocal(); S.calDay=d; S.calMonth=monthOf(d);
+    renderAll(); editTask(t.id); toast("נוסף ללוח ב"+heDate(d));};
   const more=$("#fMoreGo");
   if(more&&t&&t.id) more.onclick=()=>{
     const add=+$("#fMore").value||0; if(!add){toast("צריך מספר שעות");return;}
@@ -2866,7 +2897,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.69.0";
+const VER="3.71.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
