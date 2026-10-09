@@ -1932,7 +1932,12 @@ function drillBox(){
     const paid=bl.reduce((s,b)=>s+billPaid(b),0);
     const part=mine.filter(t=>taskShare(t)<1), full=mine.filter(t=>taskShare(t)>=1);
     const sum=(l,f)=>l.reduce((a,t)=>a+f(t),0);
-    const sharePart=sum(part,mineEff), fullMine=sum(full,mineEff);
+    const rcs=retClients();
+    const rPart=rcs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c)*srcShare(srcOf(c.id)),0);
+    const rFull=rcs.filter(c=>srcShare(srcOf(c.id))>=1).reduce((a,c)=>a+retAccrued(c),0);
+    const retRows=rcs.map(c=>[esc(c.name)+' <span class="tag ret">ריטיינר</span>',"","","",
+      f0(retAccrued(c)),"",f0(retAccrued(c)*srcShare(srcOf(c.id))),"",f1(retHours(c)),"",""]);
+    const sharePart=sum(part,mineEff)+rPart, fullMine=sum(full,mineEff)+rFull;
     const orphan=bl.filter(b=>!b.taskId||!mine.some(t=>t.id===b.taskId)).reduce((s,b)=>s+billAmount(b),0);
     if(k==="share") return box("חלקי — "+Math.round(num(DB.settings.share)*100)+"% משכ\"ט המשרד",
       `<div class="mute">רק משימות שבהן את לא מקבלת 100% — העבודה מול הורוביץ.
@@ -1940,16 +1945,24 @@ function drillBox(){
       table(H,part.map(row),["סה\"כ","","","",f0(sum(part,t=>num(t.fee))),f0(sum(part,t=>num(t.extra))),
         f0(sharePart),f1(sum(part,t=>num(t.est))),f1(sum(part,t=>taskHours(t.id))),
         f1(sum(part,taskRemaining)),""],[0,6,10]));
-    if(k==="full") return box("שכ\"ט מלא — 100% שלך",
-      `<div class="mute">משימות של לקוחות פרטיים, שבהן כל שכר הטרחה שלך.</div>`+
-      (full.length?table(H,full.map(row),["סה\"כ","","","",f0(sum(full,t=>num(t.fee))),f0(sum(full,t=>num(t.extra))),
-        f0(fullMine),f1(sum(full,t=>num(t.est))),f1(sum(full,t=>taskHours(t.id))),
-        f1(sum(full,taskRemaining)),""],[0,6,10]):'<div class="mute">אין עדיין משימות של לקוחות פרטיים בתצוגה הזו.</div>'));
+    if(k==="full"){
+      const rf=rcs.filter(c=>srcShare(srcOf(c.id))>=1);
+      const rr=rf.map(c=>[esc(c.name)+' <span class="tag ret">ריטיינר</span>',
+        retMonths(c).length+" חודשים","","",f0(retAccrued(c)),"",f0(retAccrued(c)),"",f1(retHours(c)),"",""]);
+      return box("שכ\"ט מלא — 100% שלך",
+      `<div class="mute">משימות של לקוחות פרטיים, שבהן כל שכר הטרחה שלך, בתוספת הריטיינר שנצבר.</div>`+
+      ((full.length||rr.length)?table(H,full.map(row).concat(rr),
+        ["סה\"כ","","","",f0(sum(full,t=>num(t.fee))+rFull),f0(sum(full,t=>num(t.extra))),
+        f0(fullMine),f1(sum(full,t=>num(t.est))),
+        f1(sum(full,t=>taskHours(t.id))+rf.reduce((a,c)=>a+retHours(c),0)),
+        f1(sum(full,taskRemaining)),""],[0,6,10])
+        :'<div class="mute">אין עדיין משימות של לקוחות פרטיים בתצוגה הזו.</div>'));}
     const notB=mine.filter(t=>!billedTask(t.id));
     return box("סה\"כ שלי — מאיפה מורכב",
       table(["מרכיב","סכום"],[
-        ["חלקי — "+part.length+" משימות חלקיות",f0(sharePart)+" ₪"],
-        ["שכ\"ט מלא — "+full.length+" משימות 100%",f0(fullMine)+" ₪"],
+        ["חלקי — "+part.length+" משימות חלקיות"+(rPart?" + ריטיינר":""),f0(sharePart)+" ₪"],
+        ["שכ\"ט מלא — "+full.length+" משימות 100%"+(rFull?" + ריטיינר "+f0(rFull):""),f0(fullMine)+" ₪"],
+        ...(rcs.length?[["מזה ריטיינר שנצבר ("+rcs.map(c=>retMonths(c).length+" חודשים").join(", ")+")",f0(rPart+rFull)+" ₪"]]:[]),
         ...(orphan?[["דרישות שאינן משויכות למשימה",f0(orphan)+" ₪"]]:[]),
         ["סה\"כ שלי",`<b>${f0(sharePart+fullMine+orphan)} ₪</b>`],
         ["מזה כבר נדרש בדרישות תשלום",f0(billed)+" ₪"],
@@ -1989,7 +2002,7 @@ function drillBox(){
   }
   if(k==="hours"){
     const inc=DB.settings.inclGeneral;
-    const src=DB.time.filter(x=>inc||x.taskId);           /* ללא כלליות, כמו בקוביה */
+    const src=DB.time.filter(timeInSrc).filter(x=>inc||x.taskId);   /* ללא כלליות, כמו בקוביה */
     const byC={}; src.forEach(x=>{const t=x.taskId?taskById(x.taskId):null;
       const n=t?tName(t):"כלליות"; byC[n]=(byC[n]||0)+num(x.hours);});
     const tot=src.reduce((s,x)=>s+num(x.hours),0);
@@ -2078,11 +2091,19 @@ function viewStatus(){
   const billed=DB.bills.filter(b=>inSrc(billSrc(b))).reduce((s,b)=>s+billAmount(b),0);
   const notBilled=mine.filter(t=>!inRet(t)&&!billedTask(t.id));
   const notBilledSum=notBilled.reduce((s,t)=>s+taskMine(t),0);
-  const allHours=DB.time.reduce((s,x)=>s+num(x.hours),0), gen=generalHours(DB.time);
+  /* ריטיינר = שכר טרחה לכל דבר: הסכום שנצבר מתחילת הריטיינר ועד החודש הנוכחי */
+  const retCs=retClients();
+  const retFee=retCs.reduce((a,c)=>a+retAccrued(c),0);
+  const retPart=retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c)*srcShare(srcOf(c.id)),0);
+  const retFull=retCs.filter(c=>srcShare(srcOf(c.id))>=1).reduce((a,c)=>a+retAccrued(c),0);
+  const retMonthsN=retCs.reduce((a,c)=>Math.max(a,retMonths(c).length),0);
+  const srcTime=DB.time.filter(timeInSrc);
+  const allHours=srcTime.reduce((s,x)=>s+num(x.hours),0), gen=generalHours(srcTime);
   const base=DB.settings.inclGeneral?allHours:allHours-gen;
   const remaining=open.reduce((s,t)=>s+taskRemaining(t),0);
-  const rateAct=base>0?billed/base:null;
-  const rateAll=(base+remaining)>0?(billed+notBilledSum)/(base+remaining):null;
+  const retForRate=retCs.reduce((a,c)=>a+retAccrued(c)*srcShare(srcOf(c.id)),0);
+  const rateAct=base>0?(billed+retForRate)/base:null;
+  const rateAll=(base+remaining)>0?(billed+notBilledSum+retForRate)/(base+remaining):null;
   /* billed/notBilledSum כבר מחושבים מ-mineEff, כלומר חלקי + שכ"ט מלא יחד */
   const mode=S.rateMode||"all", rate=mode==="act"?rateAct:rateAll;
   const planIn=(a,b)=>DB.plans.filter(p=>p.date>=iso(a)&&p.date<=iso(b));
@@ -2102,10 +2123,11 @@ function viewStatus(){
   /* ---- הפרדה בין עבודה חלקית (שליש) לעבודה שהיא 100% שלי ---- */
   const partTasks=mine.filter(t=>taskShare(t)<1);
   const fullTasks=mine.filter(t=>taskShare(t)>=1);
-  const feeAll=mine.reduce((s,t)=>s+num(t.fee),0);
-  const feePart=partTasks.reduce((s,t)=>s+num(t.fee),0);
-  const sharePart=partTasks.reduce((s,t)=>s+mineEff(t),0);
-  const fullMine=fullTasks.reduce((s,t)=>s+mineEff(t),0);
+  const feeAll=mine.reduce((s,t)=>s+num(t.fee),0)+retFee;
+  const feePart=partTasks.reduce((s,t)=>s+num(t.fee),0)+
+    retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c),0);
+  const sharePart=partTasks.reduce((s,t)=>s+mineEff(t),0)+retPart;
+  const fullMine=fullTasks.reduce((s,t)=>s+mineEff(t),0)+retFull;
   const orphanBills=srcBills.filter(b=>!b.taskId||!mine.some(t=>t.id===b.taskId))
     .reduce((s,b)=>s+billAmount(b),0);
   const totMine=sharePart+fullMine+orphanBills;
@@ -2132,9 +2154,11 @@ function viewStatus(){
       const openC=[...new Set(mine.filter(isOpen).map(t=>t.clientId))].length;
       return card("לקוחות",cnt,openC+" עם משימות פתוחות","","clients");})()}
    ${card("משימות לגבייה",mine.length,"","","tasks")}
-   ${card("שכ\"ט כולל",f0(feeAll)+" ₪","הורוביץ והפרטי יחד","","fee")}
+   ${card("שכ\"ט כולל",f0(feeAll)+" ₪",
+      (S.src?"":"הורוביץ והפרטי יחד")+(retFee?(S.src?"":" · ")+"כולל ריטיינר "+f0(retFee):""),"","fee")}
    ${card("חלקי",f0(sharePart)+" ₪",partTasks.length+" משימות · "+Math.round(num(DB.settings.share)*100)+"% משכ\"ט","","share")}
-   ${card("שכ\"ט מלא",f0(fullMine)+" ₪",fullTasks.length+" משימות · 100% שלך","","full")}
+   ${card("שכ\"ט מלא",f0(fullMine)+" ₪",
+      fullTasks.length+" משימות · 100% שלך"+(retFull?" · ריטיינר "+f0(retFull):""),"","full")}
    ${card("סה\"כ שלי",f0(totMine)+" ₪","חלקי + שכ\"ט מלא","","mine")}
    ${card("שולם",f0(paidAll)+" ₪","מתוך "+f0(dueAll)+" שנדרשו",paidAll>=dueAll-0.5&&dueAll>0?"good":"")}
    ${card("% ששולם",dueAll>0?Math.round(paidAll/dueAll*100)+"%":"—","מהנדרש לגבייה")}
@@ -4303,8 +4327,12 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.13.0";
+const VER="4.14.0";
 const CHANGES=[
+ {v:"4.14.0",d:"2026-10-09",c:[
+  "שעות בפועל במסך מצב מסוננות לפי המקור שנבחר, וכך גם הפירוט שנפתח",
+  "הריטיינר נספר כשכר טרחה: נכנס לשכ\"ט כולל, לשכ\"ט מלא, לסה\"כ שלי ולחישוב ₪ לשעה",
+  "בפירוט מופיעה שורת ריטיינר נפרדת עם מספר החודשים שנצברו"]},
  {v:"4.13.0",d:"2026-10-09",c:[
   "תגית פרטי ליד שם הלקוח בדורש טיפול ובדרישות התשלום, ופס צבע דק בקצה כל שורה פרטית",
   "טופס עריכה של לקוח או משימה נצבע לפי המקור, עם תגית בראש הטופס",
