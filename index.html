@@ -238,8 +238,16 @@ tr.rowpv td:first-child{box-shadow:inset -3px 0 0 var(--pv)}
  padding:2px 7px;font:inherit;font-size:11px;line-height:1.5;cursor:pointer;white-space:nowrap}
 .tools .tbtn:hover{border-color:var(--accent);color:var(--accent-d)}
 .tools .mute{font-size:11px}
-.srcbar{display:flex;gap:6px;align-items:center;background:var(--accent-2);border:1px solid #a9d6f7;
- border-radius:10px;padding:6px 10px;margin:0 0 8px}
+.srcbar{display:flex;flex-wrap:wrap;gap:5px;row-gap:5px;align-items:center;background:var(--accent-2);
+ border:1px solid #a9d6f7;border-radius:10px;padding:6px 9px;margin:0 0 8px;max-width:100%}
+.srcbar>*{min-width:0}
+.srcbar input[type="month"]{max-width:136px}
+.srcbar label{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+@media(max-width:560px){
+  .srcbar{padding:6px}
+  .srcbar .pernote{display:none}
+  .srcbar input[type="month"]{max-width:118px;font-size:12px}
+}
 .srcbar b{font-size:13px}
 .tag{display:inline-block;padding:0 6px;border-radius:99px;font-size:10.5px;font-weight:700;
  border:1px solid var(--line);color:var(--ink-2);background:#fff;vertical-align:1px}
@@ -2112,8 +2120,9 @@ function srcBar(){
     ${S.src==="horowitz"?'<span class="mute">כל המספרים במסך מתייחסים לעבודה מול הורוביץ בלבד</span>':""}</div>`;
 }
 /* ===== תקופה במסך מצב ===== */
-const PERMODES=[{v:"upto",t:"עד החודש הנוכחי"},{v:"year",t:"השנה הנוכחית — מצטבר"},
-  {v:"range",t:"טווח חודשים"},{v:"all",t:"הכול"}];
+const PERMODES=[{v:"upto",t:"עד החודש",ti:"הכול מההתחלה ועד החודש הנוכחי"},
+  {v:"year",t:"שנה מצטברת",ti:"השנה הנוכחית, מינואר ועד דצמבר"},
+  {v:"range",t:"טווח",ti:"טווח חודשים לבחירתך"},{v:"all",t:"הכול",ti:"בלי הגבלת תקופה"}];
 function perRange(){
   const cur=iso(today()).slice(0,7), y=cur.slice(0,4);
   const mode=S.perMode||"upto";
@@ -2130,11 +2139,11 @@ const inPerDate=d=>inPer(String(d||"").slice(0,7));
 function perBar(){
   const r=perRange();
   return `<div class="srcbar noprint"><b>תקופה:</b>
-    ${PERMODES.map(x=>`<button class="chip${r.mode===x.v?" on":""}" data-per="${x.v}">${x.t}</button>`).join("")}
-    ${r.mode==="range"?`<label class="mute" style="margin:0">מ<input type="month" id="perF" value="${esc(r.from)}" style="width:132px"></label>
-      <label class="mute" style="margin:0">עד<input type="month" id="perT" value="${esc(S.perTo||r.to)}" style="width:132px"></label>`:""}
-    <label class="mute" style="margin:0"><input type="checkbox" id="perNF" ${S.perNoFuture!==false?"checked":""}> בלי חודשים עתידיים</label>
-    <span class="mute">· נספר ${esc(r.from==="0000-00"?"מההתחלה":r.from)} עד ${esc(r.to==="9999-99"?"הסוף":r.to)}</span></div>`;
+    ${PERMODES.map(x=>`<button class="chip${r.mode===x.v?" on":""}" data-per="${x.v}" title="${esc(x.ti)}">${x.t}</button>`).join("")}
+    ${r.mode==="range"?`<label class="mute">מ<input type="month" id="perF" value="${esc(r.from)}"></label>
+      <label class="mute">עד<input type="month" id="perT" value="${esc(S.perTo||r.to)}"></label>`:""}
+    <label class="mute"><input type="checkbox" id="perNF" ${S.perNoFuture!==false?"checked":""}> בלי עתידיים</label>
+    <span class="mute pernote">· ${esc(r.from==="0000-00"?"מההתחלה":r.from)} עד ${esc(r.to==="9999-99"?"הסוף":r.to)}</span></div>`;
 }
 /* שיוך משימה לתקופה: לפי חודש הדרישה אם נדרשה, אחרת לפי יעד ההגשה */
 function perTask(t){
@@ -4404,8 +4413,11 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.15.0";
+const VER="4.16.0";
 const CHANGES=[
+ {v:"4.16.0",d:"2026-10-09",c:[
+  "סרגל התקופה והמקור נשברים לשורות במסך צר — לא יוצאים מהמסך באייפון",
+  "שמות קצרים לכפתורי התקופה, עם הסבר מלא בלחיצה ארוכה"]},
  {v:"4.15.0",d:"2026-10-09",c:[
   "דרישת תשלום לריטיינר: לחצן שמייצר דרישה חודשית לכל לקוח ריטיינר פעיל, בלי כפילות",
   "בורר תקופה במסך מצב: עד החודש הנוכחי, השנה הנוכחית מצטבר, טווח חודשים, או הכול",
