@@ -2018,8 +2018,128 @@ function feeByClient(mine){
     ["סה\"כ","",f0(tFee),f0(tMine),f1(tH),tH>0?f0(tMine/tH):"—",f0(tB)],[0])
     +`<div class="mute">משימות שבריטיינר לא מופיעות בנפרד — השעות שלהן נספרות בשורת הריטיינר.</div>`;
 }
+/* ===== פירוט קוביות: כל פירוט מסתכם בדיוק למספר שבקובייה, לפי לקוח או לפי משימה ===== */
+function stData(){
+  const mine=takenTasks().filter(t=>perTask(t)), open=mine.filter(isOpen);
+  const bills=DB.bills.filter(b=>inSrc(billSrc(b))&&inPer(b.month));
+  const time=DB.time.filter(x=>timeInSrc(x)&&inPerDate(x.date));
+  return {mine,open,bills,time,rcs:retClients()};
+}
+const tRow=(t,v)=>({cid:t.clientId||null,tid:t.id,lab:(t.title||((t.type||"משימה")+(t.year?" "+t.year:""))),v});
+const xRow=(cid,lab,v,key)=>({cid:cid||null,tid:null,key:key||lab,lab,v});
+const billCid=b=>b.clientId||((b.taskId&&(taskById(b.taskId)||{}).clientId)||null);
+/* שורות לכל קובייה */
+function drillSpec(k){
+  const D=stData(), sh=c=>srcShare(srcOf(c.id)), rows=[];
+  const retRow=(c,v)=>xRow(c.id,"ריטיינר "+f0(retOf(c).amount)+" לחודש · "+retMonthsPer(c).length+" חודשים",v,"ret");
+  const orphanOf=b=>!isRetBill(b)&&(!b.taskId||!D.mine.some(t=>t.id===b.taskId));
+  if(k==="clients"){
+    DB.clients.filter(c=>D.mine.some(t=>t.clientId===c.id)).forEach(c=>{
+      const ts=D.mine.filter(t=>t.clientId===c.id);
+      rows.push(xRow(c.id,"",{n:1,t:ts.length,o:ts.filter(isOpen).length}));});
+    return {title:"לקוחות",onlyClient:true,rows,cols:[["n","לקוחות","n"],["t","משימות","n"],["o","פתוחות","n"]],main:"n"};}
+  if(k==="tasks"){ D.mine.forEach(t=>rows.push(tRow(t,{n:1,fee:num(t.fee)})));
+    return {title:"משימות",rows,cols:[["n","משימות","n"],["fee","שכ\"ט ללקוח","₪"]],main:"n"};}
+  if(k==="open"){ D.open.forEach(t=>rows.push(tRow(t,{n:1,est:num(t.est),h:taskHours(t.id),r:taskRemaining(t)})));
+    return {title:"משימות פתוחות",rows,cols:[["n","משימות","n"],["est","צפי שעות","h"],["h","שעות","h"],["r","יתרת שעות","h"]],main:"n"};}
+  if(k==="review"){ DB.tasks.filter(t=>t.decision==="בבדיקה"&&inSrc(taskSrc(t))).forEach(t=>rows.push(tRow(t,{n:1,fee:num(t.fee),est:num(t.est)})));
+    return {title:"בבדיקה",rows,cols:[["n","משימות","n"],["fee","שכ\"ט ללקוח","₪"],["est","צפי שעות","h"]],main:"n"};}
+  if(k==="fee"){ D.mine.forEach(t=>rows.push(tRow(t,{fee:num(t.fee)})));
+    D.rcs.forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c)})));
+    return {title:"שכ\"ט ללקוח",rows,cols:[["fee","שכ\"ט ללקוח","₪"]],main:"fee",
+      note:"שכ\"ט ללקוח של כל המשימות שנספרות, ועוד הריטיינר שנצבר בתקופה. תוספות אינן נכללות."};}
+  if(k==="share"||k==="full"||k==="mine"){
+    const okT=t=>k==="mine"||(k==="share"?taskShare(t)<1:taskShare(t)>=1);
+    const okC=c=>k==="mine"||(k==="share"?sh(c)<1:sh(c)>=1);
+    D.mine.filter(okT).forEach(t=>rows.push(tRow(t,{fee:num(t.fee),mine:mineEff(t)})));
+    D.rcs.filter(okC).forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c),mine:retAccruedPer(c)*sh(c)})));
+    if(k==="mine") D.bills.filter(orphanOf).forEach(b=>rows.push(xRow(billCid(b),"דרישה ללא משימה · "+(b.month||""),{fee:0,mine:billAmount(b)},"b"+b.id)));
+    return {title:k==="mine"?"שכ\"ט שלי":(k==="share"?"שכ\"ט שלי — קבלנות משנה":"שכ\"ט שלי — ישיר"),rows,
+      cols:[["fee","שכ\"ט ללקוח","₪"],["mine","שכ\"ט שלי","₪"]],main:"mine",
+      note:"שכ\"ט שלי: בקבלנות משנה — החלק שלך בשכ\"ט ועוד תוספת; בישיר — כל השכ\"ט. במשימה שכבר חויבה נספר הסכום שחויב בפועל."};}
+  if(k==="partpct"){
+    D.mine.filter(t=>taskShare(t)<1).forEach(t=>rows.push(tRow(t,{fee:num(t.fee),mine:mineEff(t)})));
+    D.rcs.filter(c=>sh(c)<1).forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c),mine:retAccruedPer(c)*sh(c)})));
+    return {title:"% שלי בקבלנות משנה",rows,cols:[["fee","שכ\"ט ללקוח","₪"],["mine","שכ\"ט שלי","₪"]],
+      der:[["%","%",v=>v.fee>0?v.mine/v.fee*100:null]],main:"%"};}
+  if(k==="due"||k==="paid"||k==="pctpaid"){
+    D.bills.forEach(b=>{ const t=b.taskId?taskById(b.taskId):null;
+      const v={b:billAmount(b),g:billTotal(b),p:billPaid(b)};
+      rows.push(t?tRow(t,v):xRow(billCid(b),isRetBill(b)?"ריטיינר · "+b.month:"דרישה ללא משימה · "+(b.month||""),v,isRetBill(b)?"ret":"b"+b.id));});
+    return {title:k==="due"?"חויב":(k==="paid"?"נגבה":"% גבייה"),rows,
+      cols:k==="pctpaid"?[["g","חויב כולל מע\"מ","₪"],["p","נגבה","₪"]]:[["b","חויב לפני מע\"מ","₪"],["g","כולל מע\"מ","₪"],["p","נגבה","₪"]],
+      der:k==="pctpaid"?[["%","% גבייה",v=>v.g>0?v.p/v.g*100:null]]:[],
+      main:k==="due"?"b":(k==="paid"?"p":"%"),
+      note:"דרישות התשלום של חודשי התקופה. נגבה הוא התשלום שנרשם, כולל מע\"מ."};}
+  if(k==="notbilled"){
+    D.mine.filter(t=>!inRet(t)&&!billedTask(t.id)).forEach(t=>rows.push(tRow(t,{a:taskMine(t)})));
+    D.rcs.forEach(c=>{const a=retUnbilledPer(c)*sh(c); if(a>0) rows.push(xRow(c.id,"ריטיינר — "+retMonthsPer(c).filter(m=>!retBillFor(c.id,m)).join(", "),{a},"ret"));});
+    return {title:"טרם חויב",rows,cols:[["a","טרם חויב","₪"]],main:"a"};}
+  if(k==="hours"){
+    const inc=DB.settings.inclGeneral;
+    D.time.forEach(x=>{ const h=num(x.hours), t=x.taskId?taskById(x.taskId):null;
+      if(t) rows.push(tRow(t,{h}));
+      else if(x.clientId) rows.push(xRow(x.clientId,"שעות על הלקוח בלי משימה",{h},"cli"));
+      else if(inc) rows.push(xRow(null,"שעות לא לחיוב",{h},"gen")); });
+    return {title:"שעות"+(inc?" (כולל לא לחיוב)":" (רק לחיוב)"),rows,cols:[["h","שעות","h"]],main:"h"};}
+  if(k==="rate"){
+    const all=(S.rateMode||"all")!=="act", inc=DB.settings.inclGeneral;
+    const rk=t=>(t&&inRet(t))?"ret":null;
+    D.bills.filter(b=>!isRetBill(b)).forEach(b=>{const t=b.taskId?taskById(b.taskId):null;
+      const v={b:billAmount(b),r:0,n:0,h:0,rem:0};
+      rows.push(t?tRow(t,v):xRow(billCid(b),"דרישה ללא משימה",v,"b"));});
+    D.rcs.forEach(c=>rows.push(xRow(c.id,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:retAccruedPer(c)*sh(c),n:0,h:0,rem:0},"ret")));
+    if(all) D.mine.filter(t=>!inRet(t)&&!billedTask(t.id)).forEach(t=>rows.push(tRow(t,{b:0,r:0,n:taskMine(t),h:0,rem:0})));
+    D.time.forEach(x=>{ const h=num(x.hours), t=x.taskId?taskById(x.taskId):null;
+      if(t){ if(rk(t)) rows.push(xRow(t.clientId,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:0,n:0,h,rem:0},"ret"));
+             else rows.push(tRow(t,{b:0,r:0,n:0,h,rem:0})); }
+      else if(x.clientId){ const c=clientOf(x.clientId);
+        rows.push(retOf(c)?xRow(x.clientId,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:0,n:0,h,rem:0},"ret")
+          :xRow(x.clientId,"שעות על הלקוח בלי משימה",{b:0,r:0,n:0,h,rem:0},"cli")); }
+      else if(inc) rows.push(xRow(null,"שעות לא לחיוב",{b:0,r:0,n:0,h,rem:0},"gen")); });
+    if(all) D.open.forEach(t=>{const r=taskRemaining(t); if(r>0) rows.push(tRow(t,{b:0,r:0,n:0,h:0,rem:r}));});
+    const cols=[["b","חויב","₪"],["r","ריטיינר","₪"]].concat(all?[["n","טרם חויב","₪"]]:[]).concat([["h","שעות","h"]]).concat(all?[["rem","יתרת שעות","h"]]:[]);
+    return {title:"תעריף אפקטיבי "+(all?"(כולל צפי)":"(בפועל)"),rows,cols,
+      der:[["rate","תעריף",v=>{const m=v.b+v.r+(all?v.n:0), h=v.h+(all?v.rem:0); return h>0?m/h:null;}]],main:"rate",
+      note:"תעריף = (חויב + ריטיינר"+(all?" + טרם חויב":"")+") ÷ (שעות"+(all?" + יתרת שעות":"")+"). שעות של משימות בריטיינר נספרות בשורת הריטיינר. הממוצע בשורת הסה\"כ הוא המספר בקובייה."};}
+  return null;
+}
+function drillGeneric(k){
+  const sp=drillSpec(k); if(!sp) return null;
+  const by=sp.onlyClient?"client":(S.drillBy||"client");
+  const fmt=(x,f)=>x==null?"—":(f==="₪"?f0(x):(f==="h"?f1(x):(f==="%"?Math.round(x)+"%":(f==="n"?String(x):f0(x)))));
+  const keys=sp.cols.map(c=>c[0]), der=sp.der||[];
+  const add=(a,v)=>{keys.forEach(k2=>a[k2]=(a[k2]||0)+num(v[k2]));return a;};
+  const groups={};
+  sp.rows.forEach(r=>{ const g=by==="client"?(r.cid||"_"):(r.tid?("t"+r.tid):((r.cid||"_")+"|"+(r.key||r.lab)));
+    if(!groups[g]) groups[g]={cid:r.cid,tid:by==="client"?null:r.tid,lab:r.lab,v:{},cnt:0};
+    add(groups[g].v,r.v); if(r.tid) groups[g].tids=(groups[g].tids||new Set()).add(r.tid); });
+  const cn=c=>c?clientName(c):"כללי";
+  const list=Object.values(groups).sort((a,b)=>cn(a.cid).localeCompare(cn(b.cid),"he")||String(a.lab).localeCompare(String(b.lab),"he"));
+  const tot=list.reduce((a,g)=>add(a,g.v),Object.fromEntries(keys.map(k2=>[k2,0])));
+  const H=(by==="client"?["לקוח"]:["לקוח","משימה / מרכיב"]).concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1]))
+    .concat(by==="task"?[""]:[]);
+  const body=list.map(g=>{
+    const r=[esc(cn(g.cid))]; if(by==="task") r.push(esc(g.lab));
+    sp.cols.forEach(c=>r.push(fmt(g.v[c[0]],c[2]))); der.forEach(d=>r.push(fmt(d[2](g.v),d[0]==="%"?"%":"₪")));
+    if(by==="task") r.push(g.tid?`<button class="mini" onclick="editTask('${g.tid}')">עריכה</button>`:"");
+    return r;});
+  const T=[`סה"כ · ${list.length} ${by==="client"?"לקוחות":"שורות"}`]; if(by==="task") T.push("");
+  sp.cols.forEach(c=>T.push(`<b>${fmt(tot[c[0]],c[2])}</b>`)); der.forEach(d=>T.push(`<b>${fmt(d[2](tot),d[0]==="%"?"%":"₪")}</b>`));
+  if(by==="task") T.push("");
+  const mainCol=sp.cols.find(c=>c[0]===sp.main), mainDer=der.find(d=>d[0]===sp.main);
+  const mainVal=mainDer?fmt(mainDer[2](tot),mainDer[0]==="%"?"%":"₪"):fmt(tot[sp.main],mainCol?mainCol[2]:"");
+  const tg=(v,l)=>`<button class="chip${by===v?" on":""}" onclick="S.drillBy='${v}';renderAll();showTab('status')">${l}</button>`;
+  return `<div id="drillBox" class="panel"><div class="row"><b>${sp.title} — פירוט</b>
+    ${sp.onlyClient?"":tg("client","לפי לקוח")+tg("task","לפי משימה")}
+    <button class="ghost noprint" onclick="drill('${k}')">סגירה</button></div>
+    ${table(H,body,T,[0])}
+    <div class="mute">סה"כ <b>${mainVal}</b> — זהה למספר בקובייה.${sp.note?" "+sp.note:""}</div></div>`;
+}
+
 function drillBox(){
   const k=S.drill; if(!k) return "";
+  { const g=drillGeneric(k); if(g!=null) return g; }
   const mine=takenTasks(), open=mine.filter(isOpen);
   const row=t=>[tName(t),t.year,t.type,t.submit,f0(t.fee),f0(t.extra)||"",f0(mineEff(t)),
     f1(t.est),f1(taskHours(t.id)),f1(taskRemaining(t)),
@@ -2172,8 +2292,7 @@ function drillBox(){
 function srcBar(){
   const n=v=>DB.tasks.filter(t=>billable(t)&&taskSrc(t)===v).length;
   const chip=(v,lab,cnt)=>`<button class="chip${(S.src||"")===v?" on":""}" data-src="${v}"
-    title="${cnt==null?"שתי המסגרות יחד":cnt+" משימות"}">${lab}${
-    cnt==null?"":' <span class="mute">· '+cnt+" משימות</span>"}</button>`;
+    title="${cnt==null?"שתי המסגרות יחד":cnt+" משימות"}">${lab}</button>`;
   return `<div class="srcbar noprint"><b>תצוגה:</b>
     ${chip("","הכל",null)}${chip("horowitz","קבלנות משנה",n("horowitz"))}${chip("private","ישיר",n("private"))}
     ${S.src==="private"?'<span class="mute">כל המספרים במסך מתייחסים למשרד הפרטי בלבד</span>':""}
@@ -2262,7 +2381,7 @@ function viewStatus(){
   const fullTasks=mine.filter(t=>taskShare(t)>=1);
   const feeAll=mine.reduce((s,t)=>s+num(t.fee),0)+retFee;
   const feePart=partTasks.reduce((s,t)=>s+num(t.fee),0)+
-    retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c),0);
+    retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccruedPer(c),0);
   const sharePart=partTasks.reduce((s,t)=>s+mineEff(t),0)+retPart;
   const fullMine=fullTasks.reduce((s,t)=>s+mineEff(t),0)+retFull;
   const orphanBills=srcBills.filter(b=>!isRetBill(b)&&(!b.taskId||!mine.some(t=>t.id===b.taskId)))
@@ -2297,10 +2416,11 @@ function viewStatus(){
    ${S.src==="private"?"":card("שכ\"ט שלי — ישיר",f0(fullMine)+" ₪",
       fullTasks.length+" משימות · 100% שלך"+(retFull?" · ריטיינר "+f0(retFull):""),"","full")}
    ${card("שכ\"ט שלי",f0(totMine)+" ₪",S.src==="private"?"ישיר · 100% שלך":"חלקי + שכ\"ט מלא","","mine")}
-   ${card("נגבה",f0(paidAll)+" ₪","מתוך "+f0(dueAll)+" שחויבו",paidAll>=dueAll-0.5&&dueAll>0?"good":"")}
-   ${card("% גבייה",dueAll>0?Math.round(paidAll/dueAll*100)+"%":"—","מתוך החיוב")}
+   ${card("נגבה",f0(paidAll)+" ₪","מתוך "+f0(dueAll)+" שחויבו",paidAll>=dueAll-0.5&&dueAll>0?"good":"","paid")}
+   ${(()=>{const gr=srcBills.reduce((a,b)=>a+billTotal(b),0);
+      return card("% גבייה",gr>0?Math.round(paidAll/gr*100)+"%":"—","נגבה מתוך "+f0(gr)+" כולל מע\"מ","","pctpaid");})()}
    ${S.src==="private"?"":card("% שלי בקבלנות משנה",feePart>0?Math.round(sharePart/feePart*100)+"%":"—",
-      "רק המשימות החלקיות · "+f0(feePart)+" ₪ שכ\"ט")}
+      "רק המשימות החלקיות · "+f0(feePart)+" ₪ שכ\"ט","","partpct")}
    ${card("שעות",f1(DB.settings.inclGeneral?allHours:allHours-gen),
       DB.settings.inclGeneral?"כולל לא לחיוב":"רק לחיוב","","hours")}
    ${(()=>{const tg=S.src?srcTarget(S.src):num(DB.settings.target);
@@ -4542,8 +4662,14 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.19.0";
+const VER="4.20.0";
 const CHANGES=[
+ {v:"4.20.0",d:"2026-10-09",c:[
+  "כל קובייה במסך מצב פותחת פירוט שהסה\"כ שלו זהה בדיוק למספר בקובייה",
+  "בכל פירוט מתג: לפי לקוח / לפי משימה",
+  "פירוט תעריף אפקטיבי: חויב, ריטיינר, טרם חויב ושעות לכל שורה, תעריף לכל שורה וממוצע מחושב בשורת הסה\"כ",
+  "פירוט חדש לקוביות נגבה, % גבייה ו-% שלי בקבלנות משנה",
+  "הכותרות ישיר / קבלנות משנה / הכל — בלי מספר משימות"]},
  {v:"4.19.0",d:"2026-10-09",c:[
   "מינוח אחיד בכל האפליקציה: שכ\"ט ללקוח, שכ\"ט שלי, ריטיינר, בריטיינר / בנפרד",
   "חיוב וגבייה: טרם חויב, חויב, נגבה, יתרה, % גבייה",
