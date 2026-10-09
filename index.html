@@ -268,7 +268,9 @@ tr.rowpv td:first-child{box-shadow:inset -3px 0 0 var(--pv)}
  input[type=number]{width:74px}input[type=date]{width:128px}
  .m-hide{display:none!important}
  #drillBox th{white-space:normal;vertical-align:bottom}
- #drillBox th,#drillBox td{padding:4px 3px}
+ #drillBox th,#drillBox td{padding:4px 2px}
+ #drillBox table{font-size:11px}
+ #drillBox th{font-size:10px}
  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;width:100%}
  table{font-size:11.5px;width:100%}
  th,td{padding:4px 5px;white-space:nowrap}
@@ -513,7 +515,72 @@ function migrate(){
     const cnt={}; nums.forEach(n=>cnt[n]=(cnt[n]||0)+1);
     c.fileNo=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0]; moved++;
   });
+  try{ fixShuk422(); }catch(e){ console.warn("fixShuk422",e); }
   return moved;
+}
+/* תיקון נתונים חד-פעמי (4.22.0): רחל גורדון - שוקאור.
+   ריטיינר ינואר–דצמבר 2026; דרישות ינואר–מאי שולמו; דוח שנתי 2025 1,500 ₪ (מאי, שולם); טיפול שוטף יוני 100 ₪ (שולם);
+   מע"מ בריטיינר: 4 שעות בפועל וצפי בכל תאריך דיווח ינואר–ספטמבר, וצפי בלבד לנובמבר. לא דורס דבר שקיים. */
+let FIXED_NOW=false;
+function fixShuk422(){
+  if(!DB.settings||DB.settings.fix422) return;
+  const norm=x=>String(x||"").replace(/[\s\-־]/g,"");
+  const r=DB.clients.find(c=>norm(c.name).indexOf("רחלגורדון")>=0||norm(c.name).indexOf("שוקאור")>=0);
+  if(!r) return;
+  const log=[];
+  r.src="private";
+  const R=r.retainer=r.retainer||{amount:550,from:"2026-01",to:"2026-12"};
+  if(!num(R.amount)) R.amount=550;
+  if(!R.from||R.from>"2026-01"){ R.from="2026-01"; log.push("ריטיינר מינואר 2026"); }
+  if(R.to!=="2026-12"){ R.to="2026-12"; log.push("ריטיינר עד דצמבר 2026"); }
+  const eom=m=>{const [y,mm]=m.split("-").map(Number); return iso(new Date(y,mm,0,12));};
+  const pay=(b,d)=>{ b.payments=b.payments||[]; if(billPaid(b)>=billTotal(b)-0.01) return;
+    b.payments.push({id:uid(),date:d,amount:r2(billTotal(b)-billPaid(b)),method:"העברה",ref:"",invoice:""}); return 1; };
+  const mkBill=(o)=>Object.assign({id:uid(),taskId:null,clientId:r.id,fee:0,extra:0,other:0,rate:null,hours:null,amount:null,
+    src:"private",use:{share:false,rate:false,extra:false,other:false},vat:{share:true,rate:true,extra:true,other:true},
+    vatRate:num(DB.settings.vat),payments:[]},o);
+  let nB=0,nP=0;
+  ["2026-01","2026-02","2026-03","2026-04","2026-05"].forEach(m=>{
+    let b=retBillFor(r.id,m);
+    if(!b){ b=mkBill({month:m,year:2026,date:eom(m),other:num(R.amount),amount:num(R.amount),ret:true,
+      use:{share:false,rate:false,extra:false,other:true},note:"ריטיינר חודשי"}); DB.bills.push(b); nB++; }
+    if(pay(b,eom(m))) nP++; });
+  if(nB) log.push(nB+" דרישות ריטיינר ינואר–מאי נוספו"); if(nP) log.push(nP+" דרישות ריטיינר סומנו כשולמו");
+  const paidTask=(re,type,title,year,fee,m,hours,hDate)=>{
+    let t=DB.tasks.find(x=>x.clientId===r.id&&x.inRet===false&&(re.test((x.type||"")+" "+(x.title||""))||num(x.fee)===fee));
+    if(!t){ t={id:uid(),clientId:r.id,year:year,type:type,title:title,fee:fee,extra:0,est:hours||0,sched:"",
+      work:"אצלי",submit:"הוגש",decision:"לקחתי",noBill:false,inRet:false,notes:"",checkNote:"",fileNo:""};
+      DB.tasks.push(t); log.push(title+" "+f0(fee)+" ₪ נוסף"); }
+    if(hours&&!DB.time.some(x=>x.taskId===t.id)){
+      DB.time.push({id:uid(),taskId:t.id,clientId:r.id,date:hDate,hours:hours,office:false,desc:title}); log.push(hours+" שעות על "+title); }
+    let b=DB.bills.find(x=>x.taskId===t.id);
+    if(!b){ b=mkBill({month:m,taskId:t.id,year:year,date:eom(m),fee:fee,note:title,
+      use:{share:true,rate:false,extra:false,other:false}}); DB.bills.push(b); log.push("דרישה ל"+title); }
+    if(pay(b,eom(m))) log.push(title+" סומן כשולם"); };
+  paidTask(/שנתי/,"דוח שנתי עוסק","דוח שנתי 2025",2025,1500,"2026-05",5,"2026-05-10");
+  paidTask(/שוטף/,"טיפול שוטף","טיפול שוטף יוני",2026,100,"2026-06",0,"");
+  /* מע"מ — משימה בריטיינר */
+  const vats=DB.tasks.filter(t=>t.clientId===r.id&&/מע/.test((t.type||"")+(t.title||""))&&t.inRet!==false);
+  let v=vats[0];
+  if(!v){ v={id:uid(),clientId:r.id,year:2026,type:"דוחות מע\"מ",title:"דוחות מע\"מ דו-חודשיים 2026",fee:0,extra:0,est:0,
+    sched:"",work:"אצלי",submit:"לטיפול",decision:"לקחתי",noBill:false,inRet:true,notes:"",checkNote:"",fileNo:""};
+    DB.tasks.push(v); log.push("משימת דוחות מע\"מ 2026 בריטיינר"); }
+  v.inRet=true;
+  const ids=vats.concat(vats.indexOf(v)<0?[v]:[]).map(t=>t.id);
+  const repDay=m=>{const d=new Date(m+"-15T12:00:00"); while(d.getDay()===5||d.getDay()===6) d.setDate(d.getDate()-1); return iso(d);};
+  let nH=0,nPl=0;
+  ["2026-01","2026-03","2026-05","2026-07","2026-09","2026-11"].forEach(m=>{
+    const k=repDay(m);
+    if(k<=iso(today())){
+      const has=DB.time.some(x=>monthOf(x.date)===m&&(ids.indexOf(x.taskId)>=0||(!x.taskId&&x.clientId===r.id&&/מע/.test(x.desc||""))));
+      if(!has){ DB.time.push({id:uid(),taskId:v.id,clientId:r.id,date:k,hours:4,office:false,desc:"דיווח מע\"מ"}); nH++; } }
+    if(!DB.plans.some(p=>p.date===k&&ids.indexOf(p.taskId)>=0)){ DB.plans.push({id:uid(),taskId:v.id,date:k,hours:4,start:"09:00"}); nPl++; } });
+  if(nH) log.push(nH+" דיווחי מע\"מ × 4 שעות בפועל");
+  if(nPl) log.push(nPl+" דיווחי מע\"מ × 4 שעות בצפי (כולל נובמבר)");
+  const vh=DB.time.filter(x=>ids.indexOf(x.taskId)>=0).reduce((a,x)=>a+num(x.hours),0);
+  if(num(v.est)<vh+4) v.est=vh+4;
+  DB.settings.fix422=log.length?log.join(" · "):"אין שינוי";
+  if(log.length) FIXED_NOW=true;
 }
 function loadLocal(){try{let s=localStorage.getItem(LS);
   if(s&&s.indexOf("ENC1:")===0){ if(!SKEY) return false; s=decryptStr(s.slice(5),SKEY); }
@@ -1173,7 +1240,8 @@ async function driveSync(manual){
       DB=Object.assign(DB,remote); DB.plans=DB.plans||[]; DB.offDays=DB.offDays||[];
       DB.officeDates=DB.officeDates||[]; DB.busy=DB.busy||[]; migrate();
       try{localStorage.setItem(LS,SKEY?("ENC1:"+encryptStr(JSON.stringify(DB),SKEY)):JSON.stringify(DB));}catch(e){}
-      renderAll(); toast("עודכן מהדרייב"); }
+      renderAll(); toast("עודכן מהדרייב");
+      if(FIXED_NOW){ FIXED_NOW=false; syncBusy=false; saveLocal(); toast("נתוני רחל גורדון עודכנו"); } }
     else if(lUp>rUp+1000){ await driveSave(true); }
     dSave({synced:Date.now()}); lastSync=Date.now(); setHdr();
   }catch(e){
@@ -2027,13 +2095,16 @@ function stData(){
   const time=DB.time.filter(x=>timeInSrc(x)&&inPerDate(x.date));
   return {mine,open,bills,time,rcs:retClients()};
 }
+const MHE=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+const mName=m=>{ if(!m) return ""; const [Y,M]=String(m).split("-"); return (MHE[+M-1]||m)+" "+Y; };
 const tRow=(t,v)=>({cid:t.clientId||null,tid:t.id,lab:(t.title||((t.type||"משימה")+(t.year?" "+t.year:""))),v});
 const xRow=(cid,lab,v,key)=>({cid:cid||null,tid:null,key:key||lab,lab,v});
 const billCid=b=>b.clientId||((b.taskId&&(taskById(b.taskId)||{}).clientId)||null);
 /* שורות לכל קובייה */
 function drillSpec(k){
   const D=stData(), sh=c=>srcShare(srcOf(c.id)), rows=[];
-  const retRow=(c,v)=>xRow(c.id,"ריטיינר "+f0(retOf(c).amount)+" לחודש · "+(retMonthsPer(c).length===1?"חודש אחד":retMonthsPer(c).length+" חודשים"),v,"ret");
+  /* ריטיינר: שורה לכל חודש */
+  const retRows=(c,fv)=>retMonthsPer(c).forEach(m=>rows.push(xRow(c.id,"ריטיינר "+mName(m),fv(num(retOf(c).amount),m),"ret"+m)));
   const orphanOf=b=>!isRetBill(b)&&(!b.taskId||!D.mine.some(t=>t.id===b.taskId));
   if(k==="clients"){
     DB.clients.filter(c=>D.mine.some(t=>t.clientId===c.id)).forEach(c=>{
@@ -2047,27 +2118,28 @@ function drillSpec(k){
   if(k==="review"){ DB.tasks.filter(t=>t.decision==="בבדיקה"&&inSrc(taskSrc(t))).forEach(t=>rows.push(tRow(t,{n:1,fee:num(t.fee),est:num(t.est)})));
     return {title:"בבדיקה",rows,cols:[["n","משימות","n"],["fee","שכ\"ט ללקוח","₪"],["est","צפי שעות","h"]],main:"n"};}
   if(k==="fee"){ D.mine.forEach(t=>rows.push(tRow(t,{fee:num(t.fee)})));
-    D.rcs.forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c)})));
+    D.rcs.forEach(c=>retRows(c,a=>({fee:a})));
     return {title:"שכ\"ט ללקוח",rows,cols:[["fee","שכ\"ט ללקוח","₪"]],main:"fee",
       note:"שכ\"ט ללקוח של כל המשימות שנספרות, ועוד הריטיינר שנצבר בתקופה. תוספות אינן נכללות."};}
   if(k==="share"||k==="full"||k==="mine"){
     const okT=t=>k==="mine"||(k==="share"?taskShare(t)<1:taskShare(t)>=1);
     const okC=c=>k==="mine"||(k==="share"?sh(c)<1:sh(c)>=1);
     D.mine.filter(okT).forEach(t=>rows.push(tRow(t,{fee:num(t.fee),mine:mineEff(t)})));
-    D.rcs.filter(okC).forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c),mine:retAccruedPer(c)*sh(c)})));
-    if(k==="mine") D.bills.filter(orphanOf).forEach(b=>rows.push(xRow(billCid(b),"דרישה ללא משימה · "+(b.month||""),{fee:0,mine:billAmount(b)},"b"+b.id)));
+    D.rcs.filter(okC).forEach(c=>retRows(c,a=>({fee:a,mine:a*sh(c)})));
+    if(k==="mine") D.bills.filter(orphanOf).forEach(b=>rows.push(xRow(billCid(b),"דרישה ללא משימה · "+mName(b.month),{fee:0,mine:billAmount(b)},"b"+(b.month||"")+"_"+b.id)));
     return {title:k==="mine"?"שכ\"ט שלי":(k==="share"?"שכ\"ט שלי — קבלנות משנה":"שכ\"ט שלי — ישיר"),rows,
       cols:[["fee","שכ\"ט ללקוח","₪"],["mine","שכ\"ט שלי","₪"]],main:"mine",
       note:"שכ\"ט שלי: בקבלנות משנה — החלק שלך בשכ\"ט ועוד תוספת; בישיר — כל השכ\"ט. במשימה שכבר חויבה נספר הסכום שחויב בפועל."};}
   if(k==="partpct"){
     D.mine.filter(t=>taskShare(t)<1).forEach(t=>rows.push(tRow(t,{fee:num(t.fee),mine:mineEff(t)})));
-    D.rcs.filter(c=>sh(c)<1).forEach(c=>rows.push(retRow(c,{fee:retAccruedPer(c),mine:retAccruedPer(c)*sh(c)})));
+    D.rcs.filter(c=>sh(c)<1).forEach(c=>retRows(c,a=>({fee:a,mine:a*sh(c)})));
     return {title:"% שלי בקבלנות משנה",rows,cols:[["fee","שכ\"ט ללקוח","₪"],["mine","שכ\"ט שלי","₪"]],
       der:[["%","%",v=>v.fee>0?v.mine/v.fee*100:null]],main:"%"};}
   if(k==="due"||k==="paid"||k==="pctpaid"){
     D.bills.forEach(b=>{ const t=b.taskId?taskById(b.taskId):null;
       const v={b:billAmount(b),g:billTotal(b),p:billPaid(b)};
-      rows.push(t?tRow(t,v):xRow(billCid(b),isRetBill(b)?"ריטיינר · "+b.month:"דרישה ללא משימה · "+(b.month||""),v,isRetBill(b)?"ret":"b"+b.id));});
+      const lab=(t?tRow(t,v).lab:(isRetBill(b)?"ריטיינר":"דרישה ללא משימה"))+" · "+mName(b.month);
+      rows.push(Object.assign(xRow(billCid(b),lab,v,"b"+(b.month||"")+"_"+b.id),{tid:t?t.id:null}));});
     return {title:k==="due"?"חויב":(k==="paid"?"נגבה":"% גבייה"),rows,
       cols:k==="pctpaid"?[["g","חויב כולל מע\"מ","₪"],["p","נגבה","₪"]]:[["b","חויב לפני מע\"מ","₪"],["g","כולל מע\"מ","₪"],["p","נגבה","₪"]],
       der:k==="pctpaid"?[["%","% גבייה",v=>v.g>0?v.p/v.g*100:null]]:[],
@@ -2075,12 +2147,15 @@ function drillSpec(k){
       note:"דרישות התשלום של חודשי התקופה. נגבה הוא התשלום שנרשם, כולל מע\"מ."};}
   if(k==="notbilled"){
     D.mine.filter(t=>!inRet(t)&&!billedTask(t.id)).forEach(t=>rows.push(tRow(t,{a:taskMine(t)})));
-    D.rcs.forEach(c=>{const a=retUnbilledPer(c)*sh(c); if(a>0) rows.push(xRow(c.id,"ריטיינר — "+retMonthsPer(c).filter(m=>!retBillFor(c.id,m)).join(", "),{a},"ret"));});
+    D.rcs.forEach(c=>retMonthsPer(c).filter(m=>!retBillFor(c.id,m)).forEach(m=>
+      rows.push(xRow(c.id,"ריטיינר "+mName(m),{a:num(retOf(c).amount)*sh(c)},"ret"+m))));
     return {title:"טרם חויב",rows,cols:[["a","טרם חויב","₪"]],main:"a"};}
   if(k==="hours"){
     const inc=DB.settings.inclGeneral;
     D.time.forEach(x=>{ const h=num(x.hours), t=x.taskId?taskById(x.taskId):null;
-      if(t) rows.push(tRow(t,{h}));
+      if(t){ const tr=tRow(t,{h});
+        if(inRet(t)){ const m=monthOf(x.date); tr.lab+=" · "+mName(m); tr.key="t"+t.id+"_"+m; }
+        rows.push(tr); }
       else if(x.clientId) rows.push(xRow(x.clientId,"שעות על הלקוח בלי משימה",{h},"cli"));
       else if(inc) rows.push(xRow(null,"שעות לא לחיוב",{h},"gen")); });
     return {title:"שעות"+(inc?" (כולל לא לחיוב)":" (רק לחיוב)"),rows,cols:[["h","שעות","h"]],main:"h"};}
@@ -2089,14 +2164,15 @@ function drillSpec(k){
     const rk=t=>(t&&inRet(t))?"ret":null;
     D.bills.filter(b=>!isRetBill(b)).forEach(b=>{const t=b.taskId?taskById(b.taskId):null;
       const v={b:billAmount(b),r:0,n:0,h:0,rem:0};
-      rows.push(t?tRow(t,v):xRow(billCid(b),"דרישה ללא משימה",v,"b"));});
-    D.rcs.forEach(c=>rows.push(xRow(c.id,"ריטיינר",{b:0,r:retAccruedPer(c)*sh(c),n:0,h:0,rem:0},"ret")));
+      rows.push(t?tRow(t,v):xRow(billCid(b),"דרישה ללא משימה · "+mName(b.month),v,"b"+b.id));});
+    D.rcs.forEach(c=>retRows(c,a=>({b:0,r:a*sh(c),n:0,h:0,rem:0})));
     if(all) D.mine.filter(t=>!inRet(t)&&!billedTask(t.id)).forEach(t=>rows.push(tRow(t,{b:0,r:0,n:taskMine(t),h:0,rem:0})));
     D.time.forEach(x=>{ const h=num(x.hours), t=x.taskId?taskById(x.taskId):null;
-      if(t){ if(rk(t)) rows.push(xRow(t.clientId,"ריטיינר",{b:0,r:0,n:0,h,rem:0},"ret"));
+      const rm=monthOf(x.date);
+      if(t){ if(rk(t)) rows.push(xRow(t.clientId,"ריטיינר "+mName(rm),{b:0,r:0,n:0,h,rem:0},"ret"+rm));
              else rows.push(tRow(t,{b:0,r:0,n:0,h,rem:0})); }
       else if(x.clientId){ const c=clientOf(x.clientId);
-        rows.push(retOf(c)?xRow(x.clientId,"ריטיינר",{b:0,r:0,n:0,h,rem:0},"ret")
+        rows.push(retOf(c)?xRow(x.clientId,"ריטיינר "+mName(rm),{b:0,r:0,n:0,h,rem:0},"ret"+rm)
           :xRow(x.clientId,"שעות על הלקוח בלי משימה",{b:0,r:0,n:0,h,rem:0},"cli")); }
       else if(inc) rows.push(xRow(null,"שעות לא לחיוב",{b:0,r:0,n:0,h,rem:0},"gen")); });
     if(all) D.open.forEach(t=>{const r=taskRemaining(t); if(r>0) rows.push(tRow(t,{b:0,r:0,n:0,h:0,rem:r}));});
@@ -2112,30 +2188,54 @@ function drillGeneric(k){
   const fmt=(x,f)=>x==null?"—":(f==="₪"?f0(x):(f==="h"?f1(x):(f==="%"?Math.round(x)+"%":(f==="n"?String(x):f0(x)))));
   const keys=sp.cols.map(c=>c[0]), der=sp.der||[];
   const add=(a,v)=>{keys.forEach(k2=>a[k2]=(a[k2]||0)+num(v[k2]));return a;};
-  const groups={};
-  sp.rows.forEach(r=>{ const g=by==="client"?(r.cid||"_"):(r.tid?("t"+r.tid):((r.cid||"_")+"|"+(r.key||r.lab)));
-    if(!groups[g]) groups[g]={cid:r.cid,tid:by==="client"?null:r.tid,lab:r.lab,v:{},cnt:0};
-    add(groups[g].v,r.v); if(r.tid) groups[g].tids=(groups[g].tids||new Set()).add(r.tid); });
+  const zero=()=>Object.fromEntries(keys.map(k2=>[k2,0]));
   const cn=c=>c?clientName(c):"כללי";
-  const list=Object.values(groups).sort((a,b)=>cn(a.cid).localeCompare(cn(b.cid),"he")||String(a.lab).localeCompare(String(b.lab),"he"));
-  const tot=list.reduce((a,g)=>add(a,g.v),Object.fromEntries(keys.map(k2=>[k2,0])));
-  const H=(by==="client"?["לקוח"]:["לקוח / משימה"]).concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1]))
-    .concat(by==="task"?[""]:[]);
-  const body=list.map(g=>{
-    const r=[by==="task"?`<b>${esc(cn(g.cid))}</b><br><span class="mute">${esc(g.lab)}</span>`:esc(cn(g.cid))];
-    sp.cols.forEach(c=>r.push(fmt(g.v[c[0]],c[2]))); der.forEach(d=>r.push(fmt(d[2](g.v),d[0]==="%"?"%":"₪")));
-    if(by==="task") r.push(g.tid?`<button class="mini" onclick="editTask('${g.tid}')">עריכה</button>`:"");
-    return r;});
-  const T=[`סה"כ · ${list.length} ${by==="client"?"לקוחות":"שורות"}`];
-  sp.cols.forEach(c=>T.push(`<b>${fmt(tot[c[0]],c[2])}</b>`)); der.forEach(d=>T.push(`<b>${fmt(d[2](tot),d[0]==="%"?"%":"₪")}</b>`));
-  if(by==="task") T.push("");
+  const vals=v=>sp.cols.map(c=>fmt(v[c[0]],c[2])).concat(der.map(d=>fmt(d[2](v),d[0]==="%"?"%":"₪")));
+  const bold=a=>a.map(x=>`<b>${x}</b>`);
+  const eb=tid=>tid?`<button class="mini" onclick="editTask('${tid}')">עריכה</button>`:"";
+  /* מסך לקוחות — שורה אחת ללקוח */
+  if(sp.onlyClient){
+    const g={}; sp.rows.forEach(r=>{const id=r.cid||"_"; g[id]=g[id]||{cid:r.cid,v:zero()}; add(g[id].v,r.v);});
+    const list=Object.values(g).sort((a,b)=>cn(a.cid).localeCompare(cn(b.cid),"he"));
+    const tot=list.reduce((a,x)=>add(a,x.v),zero());
+    const H=["לקוח"].concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1]));
+    return `<div id="drillBox" class="panel"><div class="row"><b>${sp.title} — פירוט</b>
+      <button class="ghost noprint" onclick="drill('${k}')">סגירה</button></div>
+      ${table(H,list.map(x=>[esc(cn(x.cid))].concat(vals(x.v))),[`סה"כ · ${list.length} לקוחות`].concat(bold(vals(tot))),H.map((h,i)=>i))}
+      <div class="mute">סה"כ <b>${fmt(tot[sp.main],(sp.cols.find(c=>c[0]===sp.main)||[])[2])}</b> — זהה למספר בקובייה.</div></div>`;
+  }
+  /* כל פריט בשורה משלו: משימה, חודש ריטיינר, דרישת תשלום */
+  const items={};
+  sp.rows.forEach(r=>{ const g=(r.cid||"_")+"|"+(r.key?("k"+r.key):("t"+r.tid));
+    if(!items[g]) items[g]={cid:r.cid,tid:r.tid||null,lab:r.lab,key:r.key||"",v:zero()};
+    add(items[g].v,r.v); });
+  const ord=x=>String(x.key||"").replace(/^ret/,"0ret");
+  const list=Object.values(items).sort((a,b)=>cn(a.cid).localeCompare(cn(b.cid),"he")
+    ||(/^ret/.test(a.key)===/^ret/.test(b.key)?0:(/^ret/.test(a.key)?1:-1))
+    ||ord(a).localeCompare(ord(b))||String(a.lab).localeCompare(String(b.lab),"he"));
+  const tot=list.reduce((a,x)=>add(a,x.v),zero());
+  const H=["לקוח / פריט"].concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1])).concat([""]);
+  const two=(top,sub)=>`<b>${esc(top)}</b><br><span class="mute">${esc(sub)}</span>`;
+  const body=[];
+  if(by==="task"){
+    list.forEach(x=>body.push([two(cn(x.cid),x.lab)].concat(vals(x.v)).concat([eb(x.tid)])));
+  } else {
+    const byC={}; list.forEach(x=>{const id=x.cid||"_"; (byC[id]=byC[id]||[]).push(x);});
+    Object.values(byC).forEach(arr=>{
+      arr.forEach(x=>body.push([two(cn(x.cid),x.lab)].concat(vals(x.v)).concat([eb(x.tid)])));
+      const st=arr.reduce((a,x)=>add(a,x.v),zero());
+      body.push([`<b>סה"כ ${esc(cn(arr[0].cid))}</b><br><span class="mute">${arr.length} פריטים</span>`].concat(bold(vals(st))).concat([""]));
+    });
+  }
+  const nC=new Set(list.map(x=>x.cid||"_")).size;
+  const T=[`סה"כ · ${list.length} פריטים · ${nC} לקוחות`].concat(bold(vals(tot))).concat([""]);
   const mainCol=sp.cols.find(c=>c[0]===sp.main), mainDer=der.find(d=>d[0]===sp.main);
   const mainVal=mainDer?fmt(mainDer[2](tot),mainDer[0]==="%"?"%":"₪"):fmt(tot[sp.main],mainCol?mainCol[2]:"");
   const tg=(v,l)=>`<button class="chip${by===v?" on":""}" onclick="S.drillBy='${v}';renderAll();showTab('status')">${l}</button>`;
   return `<div id="drillBox" class="panel"><div class="row"><b>${sp.title} — פירוט</b>
-    ${sp.onlyClient?"":tg("client","לפי לקוח")+tg("task","לפי משימה")}
+    ${tg("client","לפי לקוח")+tg("task","לפי משימה")}
     <button class="ghost noprint" onclick="drill('${k}')">סגירה</button></div>
-    ${table(H,body,T,H.map((h,i)=>i).filter(i=>!(by==="task"&&i===H.length-1)))}
+    ${table(H,body,T,H.map((h,i)=>i).filter(i=>i!==H.length-1))}
     <div class="mute">סה"כ <b>${mainVal}</b> — זהה למספר בקובייה.${sp.note?" "+sp.note:""}</div></div>`;
 }
 
@@ -4664,8 +4764,13 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.21.0";
+const VER="4.22.0";
 const CHANGES=[
+ {v:"4.22.0",d:"2026-10-09",c:[
+  "כל פירוט מציג כל פריט בשורה משלו: כל משימה, כל חודש ריטיינר, וכל דרישת תשלום עם החודש שלה",
+  "לפי לקוח: הפריטים של כל לקוח ומתחתם שורת סה\"כ ללקוח; לפי משימה: רשימה שטוחה",
+  "טרם חויב מראה בדיוק לאיזה חודש ריטיינר לא נדרש תשלום",
+  "תיקון נתונים לרחל גורדון - שוקאור: ריטיינר ינואר–דצמבר 2026, ינואר–מאי שולם, דוח שנתי 2025 ו-טיפול שוטף יוני, מע\"מ 4 שעות בכל דיווח בפועל ובצפי"]},
  {v:"4.21.0",d:"2026-10-09",c:[
   "תיקון: בטלפון הפירוט של כל קובייה הציג רק את עמודת הלקוח — עכשיו מוצגים כל הסכומים, השעות והתעריף",
   "בתצוגה לפי משימה: שם הלקוח ומתחתיו שם המשימה, כך שאפשר להבחין בין שתי שורות של אותו לקוח",
