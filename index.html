@@ -975,6 +975,21 @@ function planTimes(p){
 }
 /* תכנון שטרם הגיע ליומן מסומן כממתין, וייכנס בסנכרון הבא */
 const gcalPending=m=>DB.plans.filter(p=>(!m||monthOf(p.date)===m)&&!p.done&&(!p.evId||p.evDirty));
+/* מחפש אירוע זהה שכבר קיים ביומן, כדי לא ליצור כפילות */
+async function gcalFindTwin(p){
+  try{
+    const t=planTimes(p);
+    const from=new Date(p.date+"T00:00:00"), to=new Date(from.getTime()+86400000);
+    const url="https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true"+
+      "&maxResults=50&timeMin="+encodeURIComponent(from.toISOString())+
+      "&timeMax="+encodeURIComponent(to.toISOString());
+    const r=await gFetch(url); const j=await r.json();
+    const title=planTitle(p), used=new Set(DB.plans.filter(x=>x!==p).map(x=>x.evId).filter(Boolean));
+    const hit=(j.items||[]).find(ev=>ev.status!=="cancelled"&&ev.summary===title&&
+      ev.start&&ev.start.dateTime&&ev.start.dateTime.slice(0,16)===t.start.slice(0,16)&&!used.has(ev.id));
+    return hit?hit.id:null;
+  }catch(e){ return null; }
+}
 async function gcalUpsert(p,quiet){
   if(!DB.settings.gcal) return {ok:false,why:"off"};
   if(!drive.token){ p.evDirty=true; drive.needsAuth=true; return {ok:false,why:"auth"}; }
@@ -989,13 +1004,19 @@ async function gcalUpsert(p,quiet){
       {method:id?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     return r.json();
   };
+  /* תכנון שעדיין אין לו אירוע — בודקים שלא קיים כבר אירוע זהה */
+  if(!p.evId){ const twin=await gcalFindTwin(p); if(twin) p.evId=twin; }
   try{
     let j;
     try{ j=await send(p.evId); }
     catch(e1){
-      /* האירוע נמחק ביומן — יוצרים אותו מחדש במקום להיכשל בשקט */
-      if(p.evId&&!/auth/.test(e1.message||"")){ p.evId=null; j=await send(null); }
-      else throw e1;
+      /* יוצרים מחדש רק כשהאירוע באמת כבר לא קיים ביומן (404/410),
+         ולא בכל שגיאה — אחרת נוצרות כפילויות */
+      const gone=p.evId&&/\b(404|410)\b/.test(e1.message||"");
+      if(!gone) throw e1;
+      const twin=await gcalFindTwin(p);     /* אולי הוא קיים תחת מזהה אחר */
+      if(twin){ p.evId=twin; j=await send(twin); }
+      else { p.evId=null; j=await send(null); }
     }
     if(j&&j.id){ p.evId=j.id; p.evDirty=false; saveLocal(); return {ok:true}; }
     p.evDirty=true; return {ok:false,why:"no-id"};
@@ -1044,6 +1065,36 @@ async function gcalPull(m){
   }catch(e){ if(e.message==="auth"){drive.token=null;drive.needsAuth=true;}
     toast("המשיכה מהיומן נכשלה: "+(e.message||"שגיאה")); }
 }
+window.gcalDedupe=async function(m){
+  if(!gReady()||!drive.token){ toast("צריך קודם להתחבר לגוגל"); return; }
+  const [Y,M]=m.split("-").map(Number);
+  const from=new Date(Y,M-1,1), to=new Date(Y,M,1);
+  try{
+    const url="https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime"+
+      "&maxResults=500&timeMin="+encodeURIComponent(from.toISOString())+"&timeMax="+encodeURIComponent(to.toISOString());
+    const r=await gFetch(url); const j=await r.json();
+    const ours=(j.items||[]).filter(ev=>ev.status!=="cancelled"&&
+      (ev.description||"").indexOf("תוכנן במערכת")>=0&&ev.start&&ev.start.dateTime);
+    const keep=new Set(DB.plans.map(p=>p.evId).filter(Boolean));
+    const seen={}, dupes=[];
+    ours.forEach(ev=>{ const k=ev.summary+"|"+ev.start.dateTime.slice(0,16);
+      (seen[k]=seen[k]||[]).push(ev); });
+    Object.values(seen).forEach(list=>{
+      if(list.length<2) return;
+      /* משאירים את זה שהמערכת מכירה, ואם אין — את הראשון */
+      const stay=list.find(e=>keep.has(e.id))||list[0];
+      list.forEach(e=>{ if(e.id!==stay.id) dupes.push(e); });
+    });
+    if(!dupes.length){ toast("לא נמצאו כפילויות ביומן ✓"); return; }
+    if(!confirm("נמצאו "+dupes.length+" אירועים כפולים ביומן. למחוק אותם?")) return;
+    let n=0;
+    for(const e of dupes){
+      try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+e.id,{method:"DELETE"}); n++; }
+      catch(err){}
+    }
+    toast("נמחקו "+n+" אירועים כפולים");
+  }catch(e){ toast("הבדיקה נכשלה: "+(e.message||"שגיאה")); }
+};
 async function gcalSyncMonth(m){
   if(!gReady()){toast("החיבור לגוגל זמין רק מהאתר שלך");return;}
   /* לחיצה על הכפתור היא ההסכמה — אין צורך להדליק קודם הגדרה */
@@ -1720,6 +1771,7 @@ function viewCal(){
     <button class="ghost" id="calPrev">‹ הקודם</button><button class="ghost" id="calNext">הבא ›</button>
     <button class="${gcalPending(cur).length?"act":"ghost"}" id="calGsync">📅 שליחת התכנון ליומן גוגל</button>
     <button class="ghost" id="calGpull">⬇ משיכת משבצות תפוסות מהיומן</button>
+    <button class="ghost" onclick="gcalDedupe('${cur}')">🧹 ניקוי כפילויות ביומן</button>
     ${(()=>{const n=gcalPending(cur).length;
       if(!DB.settings.gcal) return `<span class="mute">סנכרון היומן כבוי — לחיצה על השליחה תפעיל אותו</span>`;
       return n?`<span class="flag">${n} משבצות טרם נשלחו ליומן</span>`
@@ -3141,7 +3193,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.88.0";
+const VER="3.89.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
