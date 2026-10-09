@@ -461,6 +461,7 @@ const taskShare=t=>srcShare(taskSrc(t));
 const srcTarget=src=>src==="private"?num(DB.settings.targetPrivate||DB.settings.target):num(DB.settings.target);
 const taskTarget=t=>srcTarget(taskSrc(t));
 const srcLabel=src=>src==="private"?"פרטי":"הורוביץ";
+const autoTitle=t=>(t&&t.title)?t.title:"";
 const srcTag=t=>taskSrc(t)==="private"?' <span class="tag priv">פרטי</span>':"";
 /* המתג הגלובלי: ריק = הכול */
 const inSrc=src=>!S.src||src===S.src;
@@ -469,7 +470,7 @@ const taskBilled=id=>DB.bills.filter(b=>b.taskId===id).reduce((s,b)=>s+billAmoun
 const mineEff=t=>{const b=taskBilled(t.id); return b>0?b:taskMine(t);};
 const taskRemaining=t=>Math.max(0,num(t.est)-taskHours(t.id));
 const tName=t=>t&&(t.clientId?clientName(t.clientId):(t.prospect||"— ללא לקוח —"));
-const taskLabel=t=>`${tName(t)} · ${t.year||""} · ${t.type||""}`;
+const taskLabel=t=>`${tName(t)} · ${t.title?t.title:((t.year||"")+" · "+(t.type||""))}`;
 const isOpen=t=>t.submit==="לטיפול";
 const billedTask=id=>DB.bills.some(b=>b.taskId===id);
 /* שעות כלליות = בלי משימה ובלי לקוח. שעות על לקוח בלי משימה = שעות ריטיינר. */
@@ -827,11 +828,49 @@ const BKPRE="גיבוי CPA ", BKKEEP=10, BKDAY="cpa-bk-day", BKDL="cpa-lastdl";
 let BKCACHE=null, bkBusy=false;
 const dlDays=()=>{const t=+(localStorage.getItem(BKDL)||0); return t?Math.floor((Date.now()-t)/864e5):null;};
 const dlDue=()=>{const d=dlDays(); return d===null||d>=7;};
-async function bkParent(){
-  try{ const st=dState(); if(!st.dataId) return null;
-    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st.dataId+"?fields=parents");
-    const j=await r.json(); return (j.parents||[])[0]||null; }catch(e){ return null; }
+/* תיקיית המערכת בדרייב — הכול יושב שם: קובץ הנתונים, הגיבויים והדוחות */
+const SYSFOLD="מערכת CPA", SUBBK="גיבויים", SUBREP="דוחות";
+async function folderFind(name,parent){
+  const q=encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='"+name+
+    "' and trashed=false"+(parent?" and '"+parent+"' in parents":""));
+  const r=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id,name)");
+  return ((await r.json()).files||[])[0]||null;
 }
+async function folderMake(name,parent){
+  const meta={name:name,mimeType:"application/vnd.google-apps.folder"};
+  if(parent) meta.parents=[parent];
+  const r=await gFetch("https://www.googleapis.com/drive/v3/files?fields=id",
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(meta)});
+  return (await r.json()).id;
+}
+async function folderGet(name,parent,key){
+  const st=dState();
+  if(key&&st[key]){
+    try{ const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st[key]+"?fields=id,trashed");
+      const j=await r.json(); if(j.id&&!j.trashed) return j.id; }catch(e){}
+  }
+  let f=await folderFind(name,parent);
+  const id=f?f.id:await folderMake(name,parent);
+  if(key) dSave({[key]:id});
+  return id;
+}
+const sysFolder=()=>folderGet(SYSFOLD,null,"sysId");
+async function bkFolder(){ return folderGet(SUBBK,await sysFolder(),"bkId"); }
+async function repFolder(){ return folderGet(SUBREP,await sysFolder(),"repId"); }
+/* קובץ הנתונים עובר לתיקיית המערכת, פעם אחת */
+async function dataIntoFolder(){
+  try{
+    const st=dState(); if(!st.dataId||st.dataMoved) return;
+    const sys=await sysFolder();
+    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st.dataId+"?fields=parents");
+    const cur=((await r.json()).parents||[]);
+    if(cur.indexOf(sys)<0)
+      await gFetch("https://www.googleapis.com/drive/v3/files/"+st.dataId+
+        "?addParents="+sys+(cur.length?"&removeParents="+cur.join(","):"")+"&fields=id",{method:"PATCH"});
+    dSave({dataMoved:1});
+  }catch(e){}
+}
+async function bkParent(){ try{ return await bkFolder(); }catch(e){ return null; } }
 async function bkList(){
   const q=encodeURIComponent("name contains '"+BKPRE+"' and trashed=false");
   const r=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+
@@ -858,6 +897,7 @@ async function driveBackup(force,silent){
     const ex=((await r0.json()).files||[])[0];
     const meta={name:name,mimeType:"application/json"};
     if(!ex){ const par=await bkParent(); if(par) meta.parents=[par]; }
+    await dataIntoFolder();
     const form=new FormData();
     form.append("metadata",new Blob([JSON.stringify(meta)],{type:"application/json"}));
     form.append("file",new Blob([JSON.stringify(DB)],{type:"application/json"}));
@@ -869,6 +909,14 @@ async function driveBackup(force,silent){
   }catch(e){ if(!silent) dInfo("הגיבוי היומי נכשל: "+e.message,true); }
   finally{ bkBusy=false; }
 }
+window.sysSetup=async()=>{
+  const m=document.getElementById("sysMsg");
+  const say=(t,bad)=>{ if(m) m.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:`<span class="ok">${esc(t)}</span>`; };
+  if(!drive.token){ say("צריך להתחבר לגוגל קודם",true); return; }
+  try{ say("מסדר…"); await sysFolder(); await bkFolder(); await repFolder(); await dataIntoFolder();
+    say("התיקייה מוכנה וקובץ הנתונים הועבר אליה ✓"); setTimeout(renderAll,400);
+  }catch(e){ say("לא הצליח: "+e.message,true); }
+};
 window.bkNow=()=>driveBackup(true,false).then(()=>renderAll());
 window.bkRefresh=()=>bkList().then(()=>renderAll()).catch(e=>dInfo("לא ניתן לקרוא את רשימת הגיבויים: "+e.message,true));
 window.bkRestore=async id=>{
@@ -1198,6 +1246,71 @@ function nextFreeDay(hours,fromK){
   for(let i=0;i<120;i++){ const k=iso(d); if(dayHasRoom(k,hours)) return k; d.setDate(d.getDate()+1); }
   return fromK||iso(today());
 }
+/* ======= משימות קבועות שנפתחות לבד ======= */
+const HEMON=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+const AUTOFREQ=[{v:"vat2",t:'מע"מ דו־חודשי'},{v:"month",t:"חודשי"},{v:"quarter",t:"רבעוני"},{v:"year",t:"שנתי"}];
+const autoOf=c=>(c&&c.auto&&c.auto.on)?c.auto:null;
+/* כל התקופות מתאריך ההתחלה ועד חודשיים קדימה */
+function autoPeriods(a){
+  const out=[], st=String(a.from||iso(today()).slice(0,7));
+  let [Y,M]=st.split("-").map(Number);
+  const lim=new Date(today().getFullYear(),today().getMonth()+2,1);
+  const step={vat2:2,month:1,quarter:3,year:12}[a.every]||2;
+  if(a.every==="vat2") M=M%2===0?M-1:M;          /* מע"מ דו־חודשי מתחיל בחודש אי־זוגי */
+  for(let i=0;i<60;i++){
+    const endM=M+step-1, endY=Y+Math.floor((endM-1)/12), em=((endM-1)%12)+1;
+    const due=new Date(endY,em,Math.min(num(a.day)||15,28));   /* החודש שאחרי סוף התקופה */
+    if(due>lim) break;
+    const label=step===1?HEMON[M-1]
+      :(step===12?"שנת "+Y
+      :HEMON[M-1]+" "+HEMON[em-1]+(endY!==Y?" "+endY:""));
+    out.push({key:Y+"-"+pad2(M)+"|"+a.every, label:label, due:due, year:endY});
+    const nm=M+step; Y=Y+Math.floor((nm-1)/12); M=((nm-1)%12)+1;
+  }
+  return out;
+}
+/* ה-15 בחודש, ואם זה שישי או שבת אז יום העסקים שלפניו */
+function autoDue(d){
+  const x=new Date(d);
+  for(let i=0;i<10;i++){ if(!dayInfo(x).off) return iso(x); x.setDate(x.getDate()-1); }
+  return iso(d);
+}
+function autoRun(silent){
+  let made=0, planned=0;
+  DB.clients.forEach(c=>{
+    const a=autoOf(c); if(!a) return;
+    autoPeriods(a).forEach(p=>{
+      const key=c.id+"|"+p.key;
+      if(DB.tasks.some(t=>t.autoKey===key)) return;
+      const due=autoDue(p.due);
+      const t={id:uid(),clientId:c.id,year:p.year,type:a.type||"דוחות מע\"מ",
+        fee:num(a.fee),extra:0,est:num(a.est)||0,sched:due,work:"אצלי",submit:"לטיפול",
+        decision:"לקחתי",noBill:false,notes:"",checkNote:"",fileNo:c.fileNo||"",
+        autoKey:key,title:(a.type||'מע"מ')+" "+p.label};
+      DB.tasks.push(t); made++;
+      if(a.plan!==false&&num(a.est)>0){
+        const k=autoPlanDay(due,num(a.est));
+        const fr=freeStarts(k,num(a.est));
+        if(fr.length){
+          const pl={id:uid(),taskId:t.id,date:k,hours:num(a.est),start:fr[0]};
+          DB.plans.push(pl); planned++;
+          try{ if(DB.settings.gcal) gcalUpsert(pl,true); }catch(e){}
+        }
+      }
+    });
+  });
+  if(made){ saveLocal(); if(!silent){ renderAll();
+    toast(made+" משימות קבועות נפתחו"+(planned?" · "+planned+" נכנסו ללוח":"")); } }
+  return {made:made,planned:planned};
+}
+/* היום עצמו אם יש בו מקום, אחרת יום עסקים קודם */
+function autoPlanDay(due,hours){
+  const d=new Date(due+"T12:00:00");
+  for(let i=0;i<14;i++){ const k=iso(d); if(freeStarts(k,hours).length) return k; d.setDate(d.getDate()-1); }
+  return due;
+}
+window.autoNow=()=>{const r=autoRun(false);
+  if(!r.made) toast("אין משימות חדשות לפתוח כרגע");};
 function dayFreeRefresh(){
   const sEl=document.getElementById("pStart"); if(!sEl) return;
   const h=+((document.getElementById("pHours")||{}).value)||1, k=S.calDay;
@@ -1532,7 +1645,37 @@ window.printScreen=function(){
   window.addEventListener("afterprint",restore);
   window.print(); setTimeout(restore,3000);
 };
-const printBtn=()=>`<div class="row noprint"><button class="ghost" onclick="printScreen()">הדפסה / PDF</button></div>`;
+const printBtn=()=>`<div class="row noprint"><button class="ghost" onclick="printScreen()">הדפסה / PDF</button>
+  <button class="ghost" onclick="repToDrive()">💾 שמירה לתיקייה בדרייב</button>
+  <span class="mute" id="repDriveMsg"></span></div>`;
+window.repToDrive=async function(){
+  const msg=document.getElementById("repDriveMsg");
+  const say=(t,bad)=>{ if(msg) msg.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:`<span class="ok">${esc(t)}</span>`; };
+  if(!drive.token){ say("צריך להתחבר לגוגל קודם",true); return; }
+  try{
+    say("שומר…");
+    const sec=document.querySelector("section:not([hidden])");
+    const title=(sec&&sec.querySelector("h2")?sec.querySelector("h2").textContent:"דוח").replace(/\s+/g," ").trim().slice(0,60);
+    const body=sec?sec.innerHTML.replace(/<div class="row noprint">[\s\S]*?<\/div>/,""):"";
+    const css=[...document.querySelectorAll("style")].map(x=>x.textContent).join("\n");
+    const html=`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">`+
+      `<title>${esc(title)}</title><style>${css}</style></head><body><div class="wrap">`+
+      `<h1 style="font-size:18px">${esc(DB.settings.bizName||"")}</h1>`+
+      `<div class="mute">${esc(title)} · הופק ${heDate(iso(today()))}</div>${body}</div></body></html>`;
+    const name=title+" "+iso(today())+".html";
+    const par=await repFolder();
+    const q=encodeURIComponent("name='"+name.replace(/'/g,"")+"' and trashed=false");
+    const r0=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id)");
+    const ex=((await r0.json()).files||[])[0];
+    const meta={name:name,mimeType:"text/html"}; if(!ex&&par) meta.parents=[par];
+    const form=new FormData();
+    form.append("metadata",new Blob([JSON.stringify(meta)],{type:"application/json"}));
+    form.append("file",new Blob([html],{type:"text/html"}));
+    await gFetch("https://www.googleapis.com/upload/drive/v3/files"+(ex?"/"+ex.id:"")+"?uploadType=multipart",
+      {method:ex?"PATCH":"POST",body:form});
+    say("נשמר בדרייב · "+SYSFOLD+" ⟵ "+SUBREP+" ⟵ "+name);
+  }catch(e){ say("השמירה נכשלה: "+e.message,true); }
+};
 const opts=(arr,sel)=>arr.map(o=>{const v=typeof o==="object"?o.v:o,t=typeof o==="object"?o.t:o;
   return `<option value="${esc(v)}" ${String(v)===String(sel)?"selected":""}>${esc(t)}</option>`;}).join("");
 const clientOpts=sel=>opts(DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he")).map(c=>({v:c.id,t:c.name})),sel);
@@ -2709,8 +2852,22 @@ function viewData(){
           `<button class="mini" onclick="snapRestore(${i})">שחזור</button>`]),null);})()}
   </div>
   <div class="panel">
+    <b>תיקיית המערכת בדרייב</b>
+    <div class="mute">כל מה שהמערכת מייצרת יושב בתיקייה אחת בדרייב:
+      <b>${SYSFOLD}</b> ובתוכה <b>${SUBBK}</b> ו-<b>${SUBREP}</b>.
+      קובץ הנתונים השוטף עובר לשם אוטומטית, הגיבויים היומיים נשמרים בתיקיית הגיבויים,
+      וכל דוח שתשמרי נכנס לתיקיית הדוחות.</div>
+    <div class="row noprint">
+      <button class="act" onclick="sysSetup()">יצירת התיקייה וסידור הקבצים</button>
+      ${(()=>{const st=dState();
+        return st.sysId?`<a class="ghost" style="text-decoration:none;padding:6px 11px"
+          href="https://drive.google.com/drive/folders/${esc(st.sysId)}" target="_blank">פתיחת התיקייה בדרייב</a>`:"";})()}
+      <span class="mute" id="sysMsg"></span>
+    </div>
+  </div>
+  <div class="panel">
     <b>גיבויים מתוארכים בדרייב</b>
-    <div class="mute">בנוסף לקובץ הנתונים השוטף, פעם ביום נשמר בדרייב עותק נפרד עם תאריך, באותה תיקייה.
+    <div class="mute">פעם ביום נשמר בתיקיית <b>${SUBBK}</b> עותק נפרד עם תאריך.
       נשמרים ${BKKEEP} האחרונים וישנים יותר נמחקים לבד. גיבוי מתוארך לא נדרס, ולכן אפשר תמיד לחזור ליום מסוים.</div>
     <div class="row noprint">
       <button class="act" onclick="bkNow()">שמירת גיבוי עכשיו</button>
@@ -2733,7 +2890,10 @@ function viewData(){
       return d===null?'<span class="flag">עדיין לא הורדת גיבוי למחשב.</span>'
         :(d>=7?'<span class="flag">ההורדה האחרונה לפני '+d+' ימים.</span>'
               :'<span class="ok">הורדה אחרונה לפני '+d+' ימים ✓</span>');})()}
-      זו השכבה היחידה שלא תלויה לא בדפדפן ולא בדרייב. מומלץ אחת לשבוע.</div>
+      זו השכבה היחידה שלא תלויה לא בדפדפן ולא בדרייב. מומלץ אחת לשבוע.
+      הדפדפן שולח את הקובץ לתיקיית ההורדות — אתר אינו רשאי לבחור תיקייה אחרת.
+      מי שרוצה עותק קבוע בתיקייה שלה במחשב, הדרך היא להגדיר בדפדפן "לשאול לאן לשמור כל קובץ",
+      או להעביר פעם בשבוע מההורדות. הגיבוי שנשמר אוטומטית בדרייב לא דורש כלום.</div>
     <div class="row noprint"><button class="${dlDue()?"act":"ghost"}" onclick="bkDownload()">⬇ הורדת גיבוי למחשב</button></div>
   </div>
   <h2>הלקוחות הפרטיים שלי</h2>
@@ -2743,6 +2903,20 @@ function viewData(){
       הגבייה נרשמת ידנית. הכפתור לא יוצר כפילויות — לקוח שכבר קיים לא נוסף שוב.</div>
     <div class="row"><button class="act" id="seedPriv">➕ הקמת הלקוחות הפרטיים</button>
       <span class="mute" id="seedMsg"></span></div>
+  </div>
+  <h2>משימות קבועות</h2>
+  <div class="panel">
+    <div class="mute">המערכת פותחת לבד את המשימות החוזרות של לקוחות שהוגדרו להן משימה קבועה בכרטיס הלקוח,
+      עד חודשיים קדימה, עם לו"ז, צפי שעות וקוביה בלוח. זה קורה בכל פתיחה של המערכת, והכפתור כאן רק מריץ את זה עכשיו.</div>
+    ${(()=>{const cs=DB.clients.filter(autoOf);
+      if(!cs.length) return '<div class="mute">עדיין לא הוגדרה משימה קבועה לאף לקוח.</div>';
+      return table(["לקוח","סוג","תדירות","יום","שעות","שכ\"ט","הבאה שתיפתח"],
+        cs.map(c=>{const a=autoOf(c);
+          const nx=autoPeriods(a).filter(p=>!DB.tasks.some(t=>t.autoKey===c.id+"|"+p.key))[0];
+          return [esc(c.name),esc(a.type||""),(AUTOFREQ.find(f=>f.v===a.every)||{}).t||a.every,
+            num(a.day)||15,f1(a.est),f0(a.fee),
+            nx?esc(nx.label)+" · לו\"ז "+heDate(autoDue(nx.due)):'<span class="ok">הכול נפתח ✓</span>'];}),null);})()}
+    <div class="row"><button class="act" onclick="autoNow()">פתיחת המשימות הקבועות עכשיו</button></div>
   </div>
   <h2>סוגי משימות</h2>
   <div class="panel">
@@ -3048,6 +3222,24 @@ window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
       <label>עד חודש (ריק = פעיל)<input id="cRetT" type="month" value="${esc((c.retainer||{}).to||"")}"></label>
     </div>
     <div class="mute">סכום קבוע ללא הגבלת שעות. שעות נרשמות ישירות על הלקוח במסך שעות, והמערכת מחשבת את התעריף האפקטיבי.</div>
+  </div>
+  <div class="panel" style="margin:6px 0;padding:8px 10px"><b>משימה קבועה שנפתחת לבד</b>
+    <div class="grid2" style="margin-top:4px">
+      <label>פעיל<select id="cAuOn">${opts([{v:"0",t:"לא"},{v:"1",t:"כן"}],(c.auto&&c.auto.on)?"1":"0")}</select></label>
+      <label>סוג המשימה<select id="cAuType">${opts(allTypes(),(c.auto||{}).type||'דוחות מע"מ')}</select></label>
+      <label>תדירות<select id="cAuEvery">${opts(AUTOFREQ,(c.auto||{}).every||"vat2")}</select></label>
+      <label>מחודש<input id="cAuFrom" type="month" value="${esc((c.auto||{}).from||iso(today()).slice(0,7))}"></label>
+      <label>לו"ז — יום בחודש שאחרי<input id="cAuDay" type="number" min="1" max="28" value="${num((c.auto||{}).day)||15}"></label>
+      <label>צפי שעות<input id="cAuEst" type="number" step="0.25" value="${num((c.auto||{}).est)||0}"></label>
+      <label>שכ"ט לכל פעם ₪<input id="cAuFee" type="number" value="${num((c.auto||{}).fee)||0}"></label>
+      <label>קוביה בלוח<select id="cAuPlan">${opts([{v:"1",t:"כן, ותסתנכרן ליומן"},{v:"0",t:"לא"}],(c.auto&&c.auto.plan===false)?"0":"1")}</select></label>
+    </div>
+    <div class="mute">לדוגמה: מע"מ דו־חודשי מחודש מאי יפתח "מע"מ מאי יוני" עם לו"ז ב־15.7, צפי 4 שעות וקוביה בלוח.
+      אם ה־15 יוצא שישי, שבת או חג — הלו"ז נקבע ליום העסקים שלפניו. המשימות נפתחות עד חודשיים קדימה, פעם אחת בלבד לכל תקופה.</div>
+    ${(()=>{const a=autoOf(c); if(!a) return "";
+      const nx=autoPeriods(a).filter(p=>!DB.tasks.some(t=>t.autoKey===c.id+"|"+p.key));
+      return nx.length?`<div class="mute">ממתינות להיפתח: ${nx.map(p=>esc(p.label)+" (לו\"ז "+heDate(autoDue(p.due))+")").join(" · ")}</div>`
+        :'<div class="mute"><span class="ok">כל המשימות עד התאריך הזה כבר נפתחו ✓</span></div>';})()}
   </div><div class="mute">לקוח פרטי = שכר הטרחה כולו שלך. לקוח הורוביץ = שליש משכ"ט המשרד.</div>
   <div class="row"><button class="act" id="cSave">שמירה</button>
     <button class="ghost" id="cCancel">ביטול</button></div></div>`;
@@ -3057,7 +3249,12 @@ window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
     c.taxId=$("#cTax").value.trim(); c.addr=$("#cAddr").value.trim();
     const ra=+$("#cRet").value||0;
     c.retainer=ra>0?{amount:ra,from:$("#cRetF").value||iso(today()).slice(0,7),to:$("#cRetT").value||""}:null;
-    saveLocal();renderAll();showTab("clients");toast("הלקוח עודכן");};
+    c.auto={on:$("#cAuOn").value==="1",type:$("#cAuType").value,every:$("#cAuEvery").value,
+      from:$("#cAuFrom").value||iso(today()).slice(0,7),day:+$("#cAuDay").value||15,
+      est:+$("#cAuEst").value||0,fee:+$("#cAuFee").value||0,plan:$("#cAuPlan").value==="1"};
+    const r=autoRun(true);
+    saveLocal();renderAll();showTab("clients");
+    toast("הלקוח עודכן"+(r.made?" · "+r.made+" משימות קבועות נפתחו":""));};
   box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.S=S;
 function wireTaskForm(t){
@@ -3611,7 +3808,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.96.0";
+const VER="3.98.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
@@ -3650,6 +3847,7 @@ function boot(){
   prevJSON=JSON.stringify(DB); UNDO=[]; setUndo();
   if(!DB.tasks.length&&!DB.clients.length) S.tab="data";
   renderAll();
+  try{ autoRun(true); }catch(e){}
   if(drive.token) setTimeout(()=>driveSync(false),800); else { drive.needsAuth=true; setHdr(); }
   window.addEventListener("focus",()=>{ if(drive.token&&Date.now()-lastSync>60000) driveSync(false); });
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&drive.token&&Date.now()-lastSync>60000) driveSync(false); });
