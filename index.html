@@ -1215,6 +1215,16 @@ async function gcalCalFor(p){
   try{ return await gcalPrivCal(); }catch(e){ return "primary"; }
 }
 const gcalBase=cal=>"https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cal||"primary")+"/events";
+/* החלת הצבעים מחדש על כל האירועים שכבר קיימים ביומן */
+window.gcalRecolor=async()=>{
+  if(!drive.token){ toast("צריך להתחבר לגוגל קודם"); return; }
+  const list=DB.plans.filter(p=>p.evId);
+  if(!list.length){ toast("אין אירועים ביומן לעדכון"); return; }
+  let ok=0;
+  for(const p of list){ const r=await gcalUpsert(p,true); if(r&&r.ok) ok++; }
+  saveLocal(); renderAll();
+  toast(ok+" אירועים עודכנו ביומן"+(ok<list.length?" · "+(list.length-ok)+" נכשלו":""));
+};
 window.gcalPrivSetup=async()=>{
   if(!drive.token){ toast("צריך להתחבר לגוגל קודם"); return; }
   try{ const id=await gcalPrivCal(); saveLocal(); renderAll();
@@ -2989,6 +2999,12 @@ function viewData(){
     <div class="row"><button class="act" id="seedPriv">➕ הקמת הלקוחות הפרטיים</button>
       <span class="mute" id="seedMsg"></span></div>
   </div>
+  <h2>מה התחדש בכל גרסה</h2>
+  <div class="panel">
+    <div class="mute">הגרסה הנוכחית: <b>${VER}</b>. הרשימה מתעדכנת בכל עדכון של המערכת.</div>
+    ${CHANGES.map(x=>`<div class="defrow"><b>${esc(x.v)}${x.d?'<br><span class="mute" style="font-size:11px">'+esc(x.d)+'</span>':""}</b>
+      <span>${x.c.map(y=>"• "+esc(y)).join("<br>")}</span></div>`).join("")}
+  </div>
   <h2>הגדרות הקוביות במסך מצב</h2>
   <div class="panel">
     <div class="mute">כאן כתוב בדיוק מה נספר בכל קובייה. מה שניתן לשינוי מסומן, השאר הוא הגדרה קבועה של המערכת.</div>
@@ -3102,6 +3118,8 @@ function viewData(){
     <label>היומן הנפרד<span class="row" style="margin:0">
       <button class="ghost" type="button" onclick="gcalPrivSetup()">${DB.settings.gcalPrivId?"בדיקה מחדש":"יצירת היומן בגוגל"}</button>
       <span class="mute">${DB.settings.gcalPrivId?'<span class="ok">קיים ✓</span>':"טרם נוצר"}</span></span></label>
+    <label>צבעים באירועים קיימים<span class="row" style="margin:0">
+      <button class="ghost" type="button" onclick="gcalRecolor()">החלת הצבעים על כל האירועים ביומן</button></span></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -3936,14 +3954,71 @@ function setHdr(){
   const sync=drive.needsAuth?"לא מחובר לגוגל — לחצי כאן להתחברות"
     :(st.synced?("מסונכרן "+new Date(st.synced).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})):"לא מסונכרן");
   const h=$("#hdr");
-  h.textContent="גרסה "+VER+(S.src?" · "+srcLabel(S.src):"")+" · "+sync+
-    (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"");
+  h.innerHTML='<a href="#" id="verLink" style="color:inherit">גרסה '+esc(VER)+'</a>'+
+    esc((S.src?" · "+srcLabel(S.src):"")+" · "+sync+
+    (st.saved?" · נשמר "+new Date(st.saved).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""));
+  const vl=document.getElementById("verLink");
+  if(vl) vl.onclick=e=>{e.preventDefault();e.stopPropagation();
+    S.tab="data";renderAll();showTab("data");
+    setTimeout(()=>{const t=[...document.querySelectorAll("#s-data h2")].find(x=>x.textContent.indexOf("מה התחדש")>=0);
+      if(t&&t.scrollIntoView) t.scrollIntoView({block:"start"});},80);};
   h.style.cursor=drive.needsAuth?"pointer":"default";
   h.style.textDecoration=drive.needsAuth?"underline":"none";
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.01.0";
+const VER="4.02.0";
+const CHANGES=[
+ {v:"4.02.0",d:"2026-10-09",c:[
+  "לחצן שמחיל מחדש את צבעי האירועים על כל מה שכבר נשלח ליומן",
+  "יומן גוגל נפרד לתיקים הפרטיים, בשם שניתן לערוך, עם צבע כחול משלו",
+  "אירועים של לקוח פרטי נכנסים ליומן הנפרד; של הורוביץ נשארים ביומן הראשי"]},
+ {v:"4.01.0",d:"2026-10-09",c:[
+  "קוביות מסך מצב מחדש: שכ\"ט כולל · חלקי · שכ\"ט מלא · סה\"כ שלי",
+  "\"חלקי מתוך שכ\"ט\" מחושב רק על המשימות החלקיות, לא על אלה שהן 100% שלך",
+  "₪ לשעה מחושב מחלקי ומשכ\"ט מלא יחד",
+  "תוקן: דרישות התשלום לא סוננו לפי מקור, ולכן אותו סכום הופיע בכל התצוגות",
+  "מסך הגדרות חדש שמסביר בדיוק מה נספר בכל קובייה ומאפשר לשנות אחוזים ויעדים",
+  "לחצני הדפסה ושמירה הוקטנו והועברו לצד שמאל בכל המסכים"]},
+ {v:"3.98.0",d:"2026-10-09",c:[
+  "תיקיית מערכת אחת בדרייב: מערכת CPA ובתוכה גיבויים ודוחות",
+  "קובץ הנתונים עובר לתיקייה אוטומטית",
+  "שמירת כל מסך כדוח בתיקיית הדוחות",
+  "משימות קבועות שנפתחות לבד: מע\"מ דו־חודשי, חודשי, רבעוני או שנתי",
+  "לכל משימה קבועה נקבע לו\"ז, צפי שעות וקוביה בלוח, והלו\"ז זז אחורה אם הוא נופל בשישי, שבת או חג"]},
+ {v:"3.96.0",d:"2026-10-09",c:[
+  "גיבוי יומי מתוארך בדרייב, עשרה אחרונים נשמרים וישנים נמחקים לבד",
+  "שחזור מכל גיבוי, עם שמירת המצב הנוכחי לפני השחזור",
+  "תזכורת שבועית להורדת עותק למחשב",
+  "מצב המשרד הפרטי מסומן בסגול בלחצנים בלבד, בלי לשנות את הרקע"]},
+ {v:"3.94.0",d:"2026-10-09",c:[
+  "תכנון משימה ליומן מציע רק ימים ושעות פנויים, לפי התכנון הקיים ולפי יומן גוגל",
+  "שישי, שבת, חגים וימי חופשה לא מוצעים",
+  "רשימת סוגי משימות שניתן לערוך, והרחבה ל-21 סוגים כברירת מחדל",
+  "החזר הוצאות כללי: חנייה, אגרות, דואר, תוכנה — ולא רק נסיעות",
+  "תכנון של לקוח פרטי נצבע אחרת בלוח, ודוח הלו\"ז מיוצר כברירת מחדל להורוביץ בלבד",
+  "הקמה בלחיצה של הלקוחות הפרטיים"]},
+ {v:"3.91.0",d:"2026-10-08",c:[
+  "המשרד הפרטי נכנס למערכת: מקור לכל לקוח, מתג תצוגה, ושכר טרחה מלא ללקוח פרטי",
+  "יעד ₪ לשעה נפרד לכל מקור",
+  "ריטיינר חודשי, שעות שנרשמות ישירות על הלקוח, ודוח ריטיינר",
+  "דרישת תשלום פרטית ממוענת ללקוח עם ח.פ או ת.ז וכתובת"]},
+ {v:"3.89.0",d:"2026-10-08",c:[
+  "סנכרון היומן תוקן: אירועים שנמחקו נוצרים מחדש, ועריכה נשלחת גם בלי אירוע קיים",
+  "זיהוי אירוע תאום מונע כפילויות, ונוסף כלי לניקוי כפילויות קיימות",
+  "צבע לאירועי היומן, ניתן לבחירה"]},
+ {v:"3.80.0",d:"2026-10-07",c:[
+  "מסמך דרישת תשלום רשמי עם פרטי העוסק, פרטי בנק, מע\"מ ותשלום תוך עשרה ימים",
+  "דרישה עם פירוט או בלי פירוט, ובחירה מה נכנס לכל דרישה",
+  "מנגנון דרישת תשלום עם ארבעה מרכיבים לסימון"]},
+ {v:"3.70.0",d:"2026-10-06",c:[
+  "משיכת שכר טרחה ושעות מקובץ הקליטה של המשרד",
+  "משיכת משבצות תפוסות מיומן גוגל",
+  "undo, גיבויים מקומיים, ונעילת המערכת בסיסמה"]},
+ {v:"עד 3.69",d:"",c:[
+  "בניית המערכת: לקוחות, משימות, שעות, לוח חודשי, דרישות תשלום, דוחות וייצוא לאקסל"]}
+];
+
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
