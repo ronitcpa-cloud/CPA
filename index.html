@@ -16,7 +16,8 @@
 <style>
 :root{--ink:#10306e;--ink-2:#4a6aa5;--line:#cfe0f5;--bg:#f1f6fd;--panel:#fff;
  --accent:#1592e6;--accent-d:#0d6cb4;--accent-2:#e2f1fd;--warn:#b5651d;--bad:#c0392b;--good:#0e8f8f;
- --pv:#2f4fb5;--pv-d:#23398a;--pv-l:#e4eaf9;box-sizing:border-box;
+ --pv:#2f4fb5;--pv-d:#23398a;--pv-l:#e4eaf9;
+ --hz:#0e7ab8;--hz-d:#0a5a88;--hz-l:#e0f0fa;box-sizing:border-box;
  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 *,*::before,*::after{box-sizing:inherit}
 html,body{max-width:100%;overflow-x:hidden}
@@ -173,6 +174,16 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 /* מצב "המשרד שלי" — סימון בלחצנים ובמתג בלבד. הרקע, הכותרת והטקסט לא משתנים. */
 /* הסימון של "המשרד שלי" נוגע אך ורק בלחצנים, בטאב הפעיל ובמתג המקור.
    רקעים, כותרות טבלה וטקסט נשארים זהים לחלוטין. */
+body.src-horowitz nav button[aria-selected="true"]{background:var(--hz);border-color:var(--hz);
+ box-shadow:0 1px 4px rgba(0,0,0,.18)}
+body.src-horowitz button.act{background:var(--hz);border-color:var(--hz)}
+body.src-horowitz button.act:hover{background:var(--hz-d);border-color:var(--hz-d)}
+body.src-horowitz .srcbar .chip.on{background:var(--hz);border-color:var(--hz);color:#fff}
+.hzform button.act{background:var(--hz);border-color:var(--hz)}
+.hzform button.act:hover{background:var(--hz-d);border-color:var(--hz-d)}
+.hzform .panel{border-color:var(--hz)}
+.hzhead{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+ color:var(--hz-d);background:var(--hz-l);border:1px solid var(--hz);border-radius:999px;padding:1px 9px}
 body.src-private nav button[aria-selected="true"]{background:var(--pv);border-color:var(--pv);
  box-shadow:0 1px 4px rgba(0,0,0,.18)}
 body.src-private button.act{background:var(--pv);border-color:var(--pv)}
@@ -195,6 +206,26 @@ details.fold>summary::before{content:"+";display:inline-flex;align-items:center;
  font-weight:700;line-height:1;flex:none}
 details.fold[open]>summary::before{content:"−"}
 details.fold>summary:hover::before{border-color:var(--accent)}
+/* סימון עדין לשורות ולטפסים של המשרד הפרטי — בלי לשנות רקעים */
+tr.rowpv td:first-child{box-shadow:inset -3px 0 0 var(--pv)}
+.pvform button.act{background:var(--pv);border-color:var(--pv)}
+.pvform button.act:hover{background:var(--pv-d);border-color:var(--pv-d)}
+.pvform .panel{border-color:var(--pv)}
+.pvhead{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+ color:var(--pv-d);background:var(--pv-l);border:1px solid var(--pv);border-radius:999px;padding:1px 9px}
+.swwrap{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fcfdff}
+.sws{display:flex;flex-wrap:wrap;gap:6px}
+.sw{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);
+ border-radius:999px;padding:3px 10px 3px 6px;font:inherit;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.sw i{width:15px;height:15px;border-radius:50%;border:1px solid rgba(0,0,0,.12);flex:none}
+.sw:hover{border-color:var(--s,var(--accent))}
+.sw.on{border-color:var(--s,var(--accent));background:var(--sl,var(--accent-2));color:var(--ink);font-weight:600}
+.swdemo{display:flex;align-items:center;gap:7px;margin-top:7px;flex-wrap:wrap;font-size:12px}
+.demo-btn{background:var(--s,var(--accent));color:#fff;border-radius:7px;padding:3px 11px;font-weight:600}
+.demo-chip{background:var(--s,var(--accent));color:#fff;border:1px solid var(--s,var(--accent));
+ border-radius:999px;padding:2px 10px}
+.demo-tag{background:var(--sl,var(--accent-2));color:var(--sd,var(--accent-d));
+ border:1px solid var(--s,var(--accent));border-radius:999px;padding:1px 9px;font-weight:600}
 .modal{position:fixed;inset:0;background:rgba(16,48,110,.35);z-index:9000;display:flex;
  align-items:flex-start;justify-content:center;padding:28px 14px;overflow:auto}
 .modal-box{background:#fff;border-radius:12px;max-width:760px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25)}
@@ -443,7 +474,7 @@ window.undoLast=()=>{
   if(drive.auto&&drive.token) driveSave(true);
 };
 const SETDEF={vat:18,bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',
-  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,gcalColor:'7',gcalColorPriv:'9',pvColor:'#2f4fb5|#23398a|#e4eaf9',gcalPrivName:'משרד - רונית ערוסי',gcalPrivId:'',
+  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,gcalColor:'7',gcalColorPriv:'9',pvColor:'#2f4fb5|#23398a|#e4eaf9',hzColor:'#0e7ab8|#0a5a88|#e0f0fa',gcalPrivName:'משרד - רונית ערוסי',gcalPrivId:'',
   targetPrivate:0};
 const PVCOLORS=[{v:"#2f4fb5|#23398a|#e4eaf9",t:"כחול כהה"},
  {v:"#0e7ab8|#0a5a88|#e0f0fa",t:"כחול־ים"},{v:"#0e8f8f|#0a6e6e|#def4f4",t:"טורקיז"},
@@ -546,7 +577,8 @@ const plannedFor=id=>DB.plans.filter(p=>p.taskId===id&&!p.done).reduce((s,p)=>s+
 const availableFor=t=>Math.max(0,Math.round((num(t.est)-taskHours(t.id)-plannedFor(t.id))*100)/100);
 const actualOn=d=>DB.time.filter(t=>t.date===d).reduce((s,x)=>s+num(x.hours),0);
 const rateEst=t=>num(t.est)>0?taskMine(t)/num(t.est):0;
-const billSrc=b=>srcOf(b.clientId||((b.taskId&&(taskById(b.taskId)||{}).clientId)||null));
+const billSrc=b=>{ if(b&&b.src==="private") return "private"; if(b&&b.src==="horowitz") return "horowitz";
+  return srcOf(b.clientId||((b.taskId&&(taskById(b.taskId)||{}).clientId)||null)); };
 const HEB={};
 function hebInfo(dt){
   const k=iso(dt); if(HEB[k]!==undefined) return HEB[k];
@@ -1824,7 +1856,9 @@ function table(head,rows,foot,keep){
     return `<td${cls(i)}${tip} data-l="${String(head[i]==null?"":head[i]).replace(/"/g,"&quot;")}">${c==null?"":c}</td>`;};
   return `<div class="scroll"><table><thead><tr>${head.map((h,i)=>
     `<th${cls(i)} data-l="${String(h==null?"":h).replace(/"/g,"&quot;")}">${h}</th>`).join("")}</tr></thead>
-   <tbody>${rows.length?rows.map(r=>`<tr>${r.map(td).join("")}</tr>`).join("")
+   <tbody>${rows.length?rows.map(r=>{
+     const pv=/class="tag priv"/.test(r.map(x=>String(x==null?"":x)).join(""));
+     return `<tr${pv?' class="rowpv"':""}>${r.map(td).join("")}</tr>`;}).join("")
    :`<tr><td colspan="${head.length}" class="mute">אין נתונים</td></tr>`}</tbody>
    ${foot?`<tfoot><tr>${foot.map(td).join("")}</tr></tfoot>`:""}</table></div>`;}
 const SCREENNAMES={status:"מצב פיננסי",tasks:"משימות",cal:"לוח חודשי",time:"יומן שעות",
@@ -2130,7 +2164,7 @@ function viewStatus(){
   ${attention.length?table(["לקוח","שנה","מוצר","אצל מי","הגשה","תכנון","גבייה","שעות בפועל","החלק שלך","סיבה","הערה","טיפול"],
     attention.map(a=>{const t=a.t;
       const planned=t.id&&DB.plans.some(p=>p.taskId===t.id&&!p.done);
-      return [tName(t),t.year,t.type,
+      return [tName(t)+(t.id?srcTag(t)+retTag(t):""),t.year,t.type,
         t.work==="מול הלקוח"?'<span class="ok">מול הלקוח</span>'
           :(t.work==="אצלי"?'<span class="warn">אצלי</span>':esc(t.work||"")),
         t.submit,
@@ -2534,7 +2568,9 @@ function viewBills(){
   const s=monthSummary(m), tr=DB.travel.find(x=>x.month===m)||{month:m,days:"",km:0,rate:DB.settings.kmRate};
   const rows=s.bills.map(b=>{const t=b.taskId?taskById(b.taskId):null;
     const st=billStatus(b), cls=st==="שולם"?"ok":(st==="שולם חלקית"?"warn":"flag");
-    return [clientName(b.clientId||(t&&t.clientId)),b.year||(t&&t.year)||"",heDate(b.date),
+    return [clientName(b.clientId||(t&&t.clientId))+
+        (billSrc(b)==="private"?' <span class="tag priv">פרטי</span>':""),
+      b.year||(t&&t.year)||"",heDate(b.date),
       f0(b.use?(b.use.share?num(b.fee):0):num(b.fee)),f0(billPart(b,"extra"))||"",
       f0(billPart(b,"rate"))||"",f0(billPart(b,"other"))||"",
       f1(b.use&&!b.use.rate?0:billHours(b))||"",
@@ -2604,7 +2640,10 @@ function billForm(b,free){
   const vchk=(k,on)=>`<label class="vat"><input type="checkbox" id="bv_${k}" ${on!==false?"checked":""}> חייב מע"מ</label>`;
   return `<div class="panel"><div class="grid2">
     ${free?`<label>לקוח<select id="bClient">${clientOpts(b.clientId)}</select></label>
-      <label>שנה<input id="bYear" value="${esc(b.year||"")}"></label>`
+      <label>שנה<input id="bYear" value="${esc(b.year||"")}"></label>
+      <label>מקור הדרישה<select id="bSrc">${opts(
+        [{v:"",t:"לפי הלקוח שנבחר"},{v:"horowitz",t:"מול משרד הורוביץ"},{v:"private",t:"לקוח פרטי שלי"}],
+        b.src||"")}</select>`+`</label>`
      :`<label style="grid-column:1/-1">משימה<select id="bTask">
         ${opts(open.map(t=>({v:t.id,t:taskLabel(t)+" · "+t.submit})),b.taskId)}</select></label>`}
     <label>חודש דרישה<select id="bMonth">${opts(monthsList(),b.month)}</select></label>
@@ -3270,8 +3309,8 @@ function viewData(){
     <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
     <label>צבע האירועים ביומן — הורוביץ<select id="sGcol">${opts(GCOLORS,DB.settings.gcalColor==null?"7":String(DB.settings.gcalColor))}</select></label>
     <label>שם היומן הנפרד לתיקים הפרטיים<input id="sGpn" value="${esc(DB.settings.gcalPrivName||"משרד - רונית ערוסי")}"></label>
-    <label>צבע הסימון של "המשרד שלי" במסכים
-      <select id="sPv">${opts(PVCOLORS,String(DB.settings.pvColor==null?"#2f4fb5|#23398a|#e4eaf9":DB.settings.pvColor))}</select></label>
+    <div style="grid-column:1/-1">${swatchPick("hz","צבע התצוגה של הורוביץ",DB.settings.hzColor)}</div>
+    <div style="grid-column:1/-1">${swatchPick("pv","צבע התצוגה של המשרד שלי",DB.settings.pvColor)}</div>
     <label>צבע האירועים — המשרד שלי<select id="sGcolP">${opts(GCOLORS,String(DB.settings.gcalColorPriv||"9"))}</select></label>
     <label>היומן הנפרד<span class="row" style="margin:0">
       <button class="ghost" type="button" onclick="gcalPrivSetup()">${DB.settings.gcalPrivId?"בדיקה מחדש":"יצירת היומן בגוגל"}</button>
@@ -3334,7 +3373,11 @@ function exportXlsx(){
   XLSX.writeFile(wb,"דוחות-"+iso(today())+".xlsx");
 }
 window.editTask=id=>{const t=taskById(id);S.editTask=id;renderAll();showTab("tasks");
-  const box=$("#taskForm");box.innerHTML=taskForm(t);wireTaskForm(t);box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
+  const box=$("#taskForm");
+  box.className=t?(taskSrc(t)==="private"?"pvform":"hzform"):"";
+  box.innerHTML=(t?`<div class="${taskSrc(t)==="private"?"pvhead":"hzhead"}" style="margin:0 0 6px">${
+    taskSrc(t)==="private"?"משימה של המשרד שלי":"משימה מול משרד הורוביץ"}</div>`:"")+taskForm(t);
+  wireTaskForm(t);box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.editTime=id=>{const x=DB.time.find(t=>t.id===id);renderAll();showTab("time");
   const box=$("#timeForm");box.innerHTML=timeForm(x);wireTimeForm(x);box&&box.scrollIntoView&&box.scrollIntoView({block:"center"});};
 window.payBill=id=>{
@@ -3562,7 +3605,10 @@ window.clientNotes=id=>{const c=DB.clients.find(x=>x.id===id); if(!c)return;
 window.editClient=id=>{const c=DB.clients.find(c=>c.id===id); if(!c)return;
   renderAll(); showTab("clients");
   const box=$("#clientForm");
+  box.className=srcOf(c.id)==="private"?"pvform":"hzform";
   box.innerHTML=`<div class="panel"><div class="grid2">
+    <div style="grid-column:1/-1"><span class="${srcOf(c.id)==="private"?"pvhead":"hzhead"}">${
+      srcOf(c.id)==="private"?"לקוח פרטי — המשרד שלי":"לקוח של משרד הורוביץ"}</span></div>
     <label>שם לקוח<input id="cName" value="${esc(c.name)}"></label>
     <label>מספר תיק<input id="cFile" value="${esc(c.fileNo||"")}"></label>
     <label>סוג<select id="cType">${opts(["","עצמאי — פטור","עצמאי — מורשה","חברה","שכיר","עמותה"],c.type||"")}</select></label>
@@ -3754,6 +3800,7 @@ function wireBillForm(b,free){
     const t=tid?taskById(tid):null;
     return {id:(b&&b.id)||uid(),month:$("#bMonth").value,taskId:tid,
       clientId:free?$("#bClient").value:(t?t.clientId:null),
+      src:($("#bSrc")?$("#bSrc").value:(b&&b.src))||undefined,
       year:free?$("#bYear").value:(t?t.year:""),date:$("#bDate").value,
       fee:+$("#bFee").value||0,extra:+$("#bExtra").value||0,other:+$("#bOther").value||0,
       rate:$("#bRate").value===""?null:+$("#bRate").value,
@@ -3805,7 +3852,10 @@ function wire(){
   if(el("fltQ")) el("fltQ").onchange=ev=>{S.tf.q=ev.target.value;renderAll();showTab("tasks");};
   document.querySelectorAll(".srcbar .chip").forEach(b=>b.onclick=()=>{
     S.src=b.dataset.src||"";
-    try{document.body.classList.toggle("src-private",S.src==="private");}catch(e){}
+    try{ applyPv();
+      document.body.classList.toggle("src-private",S.src==="private"&&DB.settings.pvColor!=="");
+      document.body.classList.toggle("src-horowitz",S.src==="horowitz"&&DB.settings.hzColor!=="");
+    }catch(e){}
     renderAll(); showTab(S.tab||"status"); });
   document.querySelectorAll("#s-tasks .chip[data-st]").forEach(b=>b.onclick=()=>{
     S.tf=S.tf||{}; S.tf.status=b.dataset.st; renderAll(); showTab("tasks"); });
@@ -4060,6 +4110,7 @@ function wire(){
     window.scrollTo({top:0,behavior:"smooth"}); };
   if(el("outClose")) el("outClose").onclick=()=>{ S.clean=false;
     document.body.classList.remove("clean"); renderAll(); showTab("reports"); };
+  document.querySelectorAll(".sw").forEach(b=>b.onclick=()=>swPick(b.dataset.kind,b.dataset.v));
   if(el("cardsSave")) el("cardsSave").onclick=()=>{
     const sh=+$("#sShare2").value; if(sh>0&&sh<=100) DB.settings.share=sh/100;
     DB.settings.target=+$("#sTgt2").value||200;
@@ -4150,7 +4201,6 @@ function wire(){
     const oldColP=String(DB.settings.gcalColorPriv==null?"":DB.settings.gcalColorPriv);
     DB.settings.gcalColor=$("#sGcol").value;
     DB.settings.gcalColorPriv=$("#sGcolP").value;
-    DB.settings.pvColor=$("#sPv").value;
     const oldNm=DB.settings.gcalPrivName||"";
     DB.settings.gcalPrivName=$("#sGpn").value.trim()||"משרד - רונית ערוסי";
     if(DB.settings.gcalPrivName!==oldNm) DB.settings.gcalPrivId="";
@@ -4198,20 +4248,46 @@ function startTick(){
     if(el2&&DB.timer&&DB.timer.running) el2.textContent=fmtDur(timerElapsedMs());
   },1000);
 }
+/* בורר צבע עם תצוגה — רואים את הגוון לפני שבוחרים */
+function swatchPick(kind,label,cur){
+  const now=String(cur==null?(kind==="pv"?"#2f4fb5|#23398a|#e4eaf9":"#0e7ab8|#0a5a88|#e0f0fa"):cur);
+  return `<div class="swwrap"><div class="mute" style="margin-bottom:4px">${esc(label)}</div>
+    <div class="sws">${PVCOLORS.map(c=>{
+      const on=String(c.v)===now, a=String(c.v).split("|");
+      return `<button type="button" class="sw${on?" on":""}" data-kind="${kind}" data-v="${esc(c.v)}"
+        title="${esc(c.t)}" style="${c.v?`--s:${a[0]};--sl:${a[2]}`:""}">
+        <i style="${c.v?`background:${a[0]}`:"background:repeating-linear-gradient(45deg,#fff,#fff 4px,#dde6f2 4px,#dde6f2 8px)"}"></i>
+        <span>${esc(c.t)}</span></button>`;}).join("")}</div>
+    <div class="swdemo" style="${now?`--s:${now.split("|")[0]};--sd:${now.split("|")[1]};--sl:${now.split("|")[2]}`:""}">
+      <span class="mute">כך זה ייראה:</span>
+      <span class="demo-btn">לחצן ראשי</span>
+      <span class="demo-chip">תצוגה פעילה</span>
+      <span class="demo-tag">${kind==="pv"?"פרטי":"הורוביץ"}</span>
+    </div></div>`;
+}
+window.swPick=(kind,v)=>{
+  if(kind==="pv") DB.settings.pvColor=v; else DB.settings.hzColor=v;
+  saveLocal(); applyPv(); renderAll(); showTab("data");
+  toast("הצבע עודכן");
+};
 function applyPv(){
   try{
-    const v=String(DB.settings.pvColor||"#2f4fb5|#23398a|#e4eaf9");
     const r=document.documentElement;
-    if(!v){ r.style.removeProperty("--pv"); r.style.removeProperty("--pv-d"); r.style.removeProperty("--pv-l"); return; }
-    const a=v.split("|");
-    r.style.setProperty("--pv",a[0]||"#2f4fb5");
-    r.style.setProperty("--pv-d",a[1]||a[0]||"#23398a");
-    r.style.setProperty("--pv-l",a[2]||"#e4eaf9");
+    const set=(pre,v,def)=>{
+      if(v===""){ r.style.removeProperty(pre); r.style.removeProperty(pre+"-d"); r.style.removeProperty(pre+"-l"); return; }
+      const a=String(v==null?def:v).split("|");
+      r.style.setProperty(pre,a[0]||def.split("|")[0]);
+      r.style.setProperty(pre+"-d",a[1]||a[0]||def.split("|")[1]);
+      r.style.setProperty(pre+"-l",a[2]||def.split("|")[2]);
+    };
+    set("--pv",DB.settings.pvColor,"#2f4fb5|#23398a|#e4eaf9");
+    set("--hz",DB.settings.hzColor,"#0e7ab8|#0a5a88|#e0f0fa");
   }catch(e){}
 }
 function setHdr(){
   try{ applyPv();
-    document.body.classList.toggle("src-private",S.src==="private"&&!!(DB.settings.pvColor||""));
+    document.body.classList.toggle("src-private",S.src==="private"&&DB.settings.pvColor!=="");
+    document.body.classList.toggle("src-horowitz",S.src==="horowitz"&&DB.settings.hzColor!=="");
   }catch(e){}
   const st=dState();
   const sync=drive.needsAuth?"לא מחובר לגוגל — לחצי כאן להתחברות"
@@ -4227,8 +4303,14 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.12.0";
+const VER="4.13.0";
 const CHANGES=[
+ {v:"4.13.0",d:"2026-10-09",c:[
+  "תגית פרטי ליד שם הלקוח בדורש טיפול ובדרישות התשלום, ופס צבע דק בקצה כל שורה פרטית",
+  "טופס עריכה של לקוח או משימה נצבע לפי המקור, עם תגית בראש הטופס",
+  "גוון נפרד לכל מקור: הורוביץ בכחול־ים, המשרד שלי בכחול כהה",
+  "בורר צבעים בהגדרות עם תצוגה מקדימה חיה לכל מקור, כולל אפשרות בלי צבע",
+  "שורה חופשית בדרישת תשלום: בורר מקור ידני שגובר על הלקוח"]},
  {v:"4.12.0",d:"2026-10-09",c:[
   "משבצת שנמשכה מיומן גוגל ניתנת לעריכה: שעה, משך והסרה בודדת",
   "\"שיוך לעבודה\" הופך משבצת כזו לשעות על משימה או על ריטיינר, עם התיאור מהיומן",
