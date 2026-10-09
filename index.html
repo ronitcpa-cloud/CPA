@@ -603,8 +603,26 @@ window.retBillMonth=m=>{
 };
 const retEstMonth=c=>num((retOf(c)||{}).estMonth);
 const retEstTotal=c=>retMonths(c).length*retEstMonth(c);
-const retHoursIn=(c,m)=>DB.time.filter(x=>!x.taskId&&x.clientId===c.id&&monthOf(x.date)===m)
-  .reduce((s,x)=>s+num(x.hours),0);
+/* שעות ריטיינר בחודש — לפי תאריך הביצוע בפועל: משימות תחת הריטיינר + שעות ישירות על הלקוח */
+const retHoursIn=(c,m)=>DB.time.filter(x=>{ if(monthOf(x.date)!==m) return false;
+  if(x.taskId){ const t=taskById(x.taskId); return !!(t&&t.clientId===c.id&&inRet(t)); }
+  return x.clientId===c.id;}).reduce((s,x)=>s+num(x.hours),0);
+/* דרישות לכל חודשי הריטיינר שהסתיימו ועוד לא נדרשו — דרישה נפרדת לכל חודש. החודש הנוכחי לא נכלל */
+window.retBillOpen=()=>{
+  let n=0;
+  DB.clients.forEach(c=>{ const r0=retOf(c); if(!r0||!inSrc(srcOf(c.id))) return;
+    const cur=iso(today()).slice(0,7);
+    retMonths(c).filter(m=>m<cur).forEach(m=>{ if(retBillFor(c.id,m)) return;
+      DB.bills.push({id:uid(),month:m,taskId:null,clientId:c.id,year:+m.slice(0,4),
+        date:iso(today()),fee:0,extra:0,other:num(r0.amount),amount:num(r0.amount),
+        rate:null,hours:null,ret:true,src:srcOf(c.id),
+        use:{share:false,rate:false,extra:false,other:true},
+        vat:{share:true,rate:true,extra:true,other:true},
+        vatRate:num(DB.settings.vat),note:"ריטיינר חודשי",payments:[]}); n++; });});
+  if(!n){ toast("אין חודשי ריטיינר שהסתיימו ללא דרישה"); return; }
+  saveLocal(); renderAll(); showTab("bills");
+  toast(n+" דרישות ריטיינר נוצרו — אחת לכל חודש");
+};
 const taken=t=>t.decision!=="לא לקחתי"&&t.decision!=="בבדיקה";
 const billable=t=>taken(t)&&!t.noBill;
 const srcTasks=()=>DB.tasks.filter(t=>inSrc(taskSrc(t)));
@@ -651,6 +669,7 @@ function officeDays(m){return officeList(m).length;}
 const isOfficeDay=d=>DB.time.some(t=>t.date===d&&t.office);
 const PAYWAYS=["העברה בנקאית","צ׳ק","אשראי","מזומן","ביט","קיזוז","אחר"];
 function billHours(b){ if(b.hours!=null&&b.hours!=="") return num(b.hours);
+  if(b.ret&&b.clientId){ const c=clientOf(b.clientId); return c?retHoursIn(c,b.month):0; }
   return b.taskId?taskHours(b.taskId):0; }
 function billRateAmount(b){return num(b.rate)*billHours(b);}
 const r2=n=>Math.round(n*100)/100;
@@ -696,7 +715,7 @@ const monthExp=m=>expList(m).reduce((s,e)=>s+num(e.amount),0);
 function monthsList(){
   const s=new Set([...DB.bills.map(b=>b.month),...DB.time.map(t=>monthOf(t.date)),...DB.travel.map(t=>t.month),
     ...(DB.expenses||[]).map(e=>e.month),
-    ...DB.plans.map(p=>monthOf(p.date)),iso(today()).slice(0,7)].filter(Boolean));
+    ...DB.plans.map(p=>monthOf(p.date)),...DB.clients.flatMap(c=>retMonths(c)),iso(today()).slice(0,7)].filter(Boolean));
   if(!s.size) s.add(iso(today()).slice(0,7));
   return [...s].sort();
 }
@@ -721,7 +740,7 @@ function monthSummary(m){
   const extra=bills.reduce((s,b)=>s+billPart(b,"extra"),0);
   const byRate=bills.reduce((s,b)=>s+billPart(b,"rate"),0);
   const other=bills.reduce((s,b)=>s+billPart(b,"other"),0);
-  const hours=bills.reduce((s,b)=>s+(b.use&&!b.use.rate?0:billHours(b)),0);
+  const hours=bills.reduce((s,b)=>s+(b.use&&!b.use.rate&&!b.ret?0:billHours(b)),0);
   const paid=bills.reduce((s,b)=>s+billPaid(b),0);
   const vat=bills.reduce((s,b)=>s+billVat(b),0);
   const gross=bills.reduce((s,b)=>s+billTotal(b),0);
@@ -2677,7 +2696,7 @@ function viewBills(){
       b.year||(t&&t.year)||"",heDate(b.date),
       f0(b.use?(b.use.share?num(b.fee):0):num(b.fee)),f0(billPart(b,"extra"))||"",
       f0(billPart(b,"rate"))||"",f0(billPart(b,"other"))||"",
-      f1(b.use&&!b.use.rate?0:billHours(b))||"",
+      f1(b.use&&!b.use.rate&&!b.ret?0:billHours(b))||"",
       f0(billAmount(b)),f0(billVat(b))||"",`<b>${f0(billTotal(b))}</b>`,
       f0(billPaid(b))||"",f0(billDue(b)),
       `<span class="${cls}">${st}</span>`,esc(b.note||""),
@@ -2690,7 +2709,8 @@ function viewBills(){
     <label>חודש <select id="bM">${opts(months,m)}</select></label>
     <button class="act" id="bAdd">+ הוסף משימה לדרישה</button>
     <button class="ghost" id="bFree">+ שורה חופשית</button>
-    ${retClients().length?`<button class="ghost" onclick="retBillMonth('${m}')">+ ריטיינר לחודש</button>`:""}
+    ${retClients().length?`<button class="ghost" onclick="retBillMonth('${m}')">+ ריטיינר לחודש</button>
+    <button class="ghost" onclick="retBillOpen()">+ ריטיינר לחודשים שהסתיימו</button>`:""}
     <button class="ghost" id="bMail">✉ שליחה במייל</button>
     <button class="act" id="bDoc">📄 מסמך דרישת תשלום רשמי</button>
     <button class="ghost" onclick="vatApply('${m}',true)">החלת מע"מ על החודש</button>
@@ -3019,7 +3039,7 @@ function viewReports(){
           table(H,s.bills.map(x=>{const r=[clientName(x.clientId||(x.taskId&&taskById(x.taskId)||{}).clientId),
             x.year,heDate(x.date),f0(x.use?(x.use.share?num(x.fee):0):num(x.fee)),
             f0(billPart(x,"extra")),f0(billPart(x,"rate")),f0(billPart(x,"other")),
-            f1(x.use&&!x.use.rate?0:billHours(x)),
+            f1(x.use&&!x.use.rate&&!x.ret?0:billHours(x)),
             f0(billAmount(x)),f0(billVat(x)),f0(billTotal(x)),f0(billPaid(x)),f0(billDue(x))];
             if(withNote) r.push(esc(x.note||"")); return r;}),F,[0,8,10,12])
           +`<div class="mute">החזר נסיעות: ${f0(s.travel)} ₪ · סה"כ לפני מע"מ: <b>${f0(s.due)} ₪</b>
@@ -3052,7 +3072,15 @@ function viewReports(){
         ["סה\"כ","","","","","",f0(accT),estT>0?f1(estT):"",f1(hT),hT>0?f0(accT/hT):"","",""],[0,6,8,10])}
       <div class="mute">משימה של לקוח ריטיינר מסומנת כברירת מחדל <b>תחת הריטיינר</b>: אין לה שכר טרחה נפרד,
         והשעות שלה נספרות כאן. משימה שסומנה <b>גבייה בנפרד</b> מתנהגת כרגיל ונגבית מעבר לסכום החודשי.
-        הגבייה בפועל נרשמת בדרישות התשלום; הטבלה הזו מודדת תמחור.</div>`;
+        הגבייה בפועל נרשמת בדרישות התשלום; הטבלה הזו מודדת תמחור.</div>
+      ${cs.map(c=>{const ms=retMonths(c);
+        const rr=ms.map(m=>{const b=retBillFor(c.id,m), h=retHoursIn(c,m);
+          return [m,f1(h)||"",b?f0(billAmount(b)):'<span class="flag">אין דרישה</span>',
+            b?f0(billTotal(b)):"",b?f0(billDue(b)):""];});
+        const hh=ms.reduce((a,m)=>a+retHoursIn(c,m),0);
+        return `<h3>${esc(c.name)} — לפי חודש</h3>`+table(["חודש","שעות בפועל","דרישה לפני מע\"מ","סה\"כ לתשלום","יתרה"],rr,
+          ["סה\"כ",f1(hh),"","",""],[0]);}).join("")}
+      <div class="row noprint"><button class="ghost" onclick="retBillOpen()">+ דרישה לכל חודש שהסתיים</button></div>`;
     }
     if(r==="doc"){
       const ms=monthsList(), m=S.docM&&ms.includes(S.docM)?S.docM:defaultMonth();
@@ -3463,7 +3491,7 @@ function exportXlsx(){
       const cid=b.clientId||(t&&t.clientId);
       return [b.month,cid?clientName(cid):(t?tName(t):""),b.year,b.date,
         b.use?(b.use.share?num(b.fee):0):num(b.fee),billPart(b,"extra"),billPart(b,"rate"),billPart(b,"other"),
-        b.use&&!b.use.rate?0:billHours(b),
+        b.use&&!b.use.rate&&!b.ret?0:billHours(b),
         billAmount(b),billVat(b),billTotal(b),billPaid(b),billDue(b),billStatus(b),b.note||""];})]);
   add("סיכום חודשי",[["חודש","שעות","כלליות","ימי משרד","נדרש","טרם נדרש","חלקי","מע\"מ","נסיעות","לגבייה"],
     ...(()=>{const mine2=takenTasks().filter(t=>!billedTask(t.id));
@@ -4413,8 +4441,13 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.16.0";
+const VER="4.17.0";
 const CHANGES=[
+ {v:"4.17.0",d:"2026-10-09",c:[
+  "לחצן \"ריטיינר לחודשים שהסתיימו\": דרישה נפרדת לכל חודש שעבר ועוד לא נדרש, בלי כפילות. החודש הנוכחי לא נכלל",
+  "בדרישת ריטיינר, עמודת שעות בפועל מציגה את שעות החודש: כל המשימות שתחת הריטיינר ושעות ישירות על הלקוח, לפי תאריך הביצוע",
+  "בדוח ריטיינר: טבלה לפי חודש לכל לקוח — שעות, דרישה ויתרה",
+  "חודשי הריטיינר מופיעים תמיד ברשימת החודשים"]},
  {v:"4.16.0",d:"2026-10-09",c:[
   "סרגל התקופה והמקור נשברים לשורות במסך צר — לא יוצאים מהמסך באייפון",
   "שמות קצרים לכפתורי התקופה, עם הסבר מלא בלחיצה ארוכה"]},
