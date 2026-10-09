@@ -176,6 +176,17 @@ body.src-private nav button[aria-selected="true"]{background:var(--accent);borde
 body.src-private button.act{background:linear-gradient(180deg,#7b57d6,#55359f)}
 body.src-private .srcbar{background:var(--accent-2);border-color:#cdbcf0}
 body.src-private .srcbar .pk.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.defrow{display:grid;grid-template-columns:132px 1fr;gap:4px 10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.defrow b{color:var(--ink)}
+.defrow span{color:var(--ink-2);line-height:1.5}
+.defrow i{grid-column:2;font-style:normal;font-size:11.5px;color:var(--accent-d)}
+.defrow i:empty{display:none}
+@media(max-width:700px){.defrow{grid-template-columns:1fr}.defrow i{grid-column:1}}
+.tools{display:flex;justify-content:flex-end;align-items:center;gap:5px;margin:0 0 4px}
+.tools .tbtn{background:#fff;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;
+ padding:2px 7px;font:inherit;font-size:11px;line-height:1.5;cursor:pointer;white-space:nowrap}
+.tools .tbtn:hover{border-color:var(--accent);color:var(--accent-d)}
+.tools .mute{font-size:11px}
 .srcbar{display:flex;gap:6px;align-items:center;background:var(--accent-2);border:1px solid #a9d6f7;
  border-radius:10px;padding:6px 10px;margin:0 0 8px}
 .srcbar b{font-size:13px}
@@ -412,7 +423,7 @@ window.undoLast=()=>{
   if(drive.auto&&drive.token) driveSave(true);
 };
 const SETDEF={vat:18,bizName:'רונית פינץ ערוסי, רו״ח',bizId:'',bizAddr:'',bizPhone:'',
-  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,gcalColor:'7',
+  bizMail:'ronit.cpa@gmail.com',payTo:'משרד רו״ח הורוביץ ואליהו',payDays:10,gcalColor:'7',gcalColorPriv:'9',gcalPrivName:'משרד - רונית ערוסי',gcalPrivId:'',
   targetPrivate:0};
 const GCOLORS=[{v:"7",t:"כחול־טורקיז (Peacock)"},{v:"9",t:"כחול כהה (Blueberry)"},
   {v:"1",t:"סגול בהיר (Lavender)"},{v:"3",t:"סגול (Grape)"},{v:"5",t:"צהוב (Banana)"},
@@ -750,7 +761,7 @@ function offPreview(){
 
 /* ============ google drive ============ */
 const GCLIENT="466114716813-rs3j8kcvj6ccljabgae4je8ktos0ehft.apps.googleusercontent.com";
-const GSCOPE="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events";
+const GSCOPE="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.app.created https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 const DKEY="cpa-system-drive";
 const drive={token:null,exp:0,auto:true,silentTried:false,needsAuth:false,busyAuth:false};
 const TKEY="cpa-gtok";
@@ -1162,11 +1173,11 @@ function planTimes(p){
 /* תכנון שטרם הגיע ליומן מסומן כממתין, וייכנס בסנכרון הבא */
 const gcalPending=m=>DB.plans.filter(p=>(!m||monthOf(p.date)===m)&&!p.done&&(!p.evId||p.evDirty));
 /* מחפש אירוע זהה שכבר קיים ביומן, כדי לא ליצור כפילות */
-async function gcalFindTwin(p){
+async function gcalFindTwin(p,cal){
   try{
     const t=planTimes(p);
     const from=new Date(p.date+"T00:00:00"), to=new Date(from.getTime()+86400000);
-    const url="https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true"+
+    const url="https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cal||"primary")+"/events?singleEvents=true"+
       "&maxResults=50&timeMin="+encodeURIComponent(from.toISOString())+
       "&timeMax="+encodeURIComponent(to.toISOString());
     const r=await gFetch(url); const j=await r.json();
@@ -1176,22 +1187,63 @@ async function gcalFindTwin(p){
     return hit?hit.id:null;
   }catch(e){ return null; }
 }
+/* יומן נפרד ללקוחות הפרטיים */
+const planSrc=p=>{const t=p&&taskById(p.taskId);return t?taskSrc(t):"horowitz";};
+async function gcalPrivCal(){
+  if(DB.settings.gcalPrivId) return DB.settings.gcalPrivId;
+  const nm=DB.settings.gcalPrivName||"משרד - רונית ערוסי";
+  try{
+    const r=await gFetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=owner");
+    const j=await r.json();
+    const f=(j.items||[]).find(c=>(c.summary||"").trim()===nm.trim());
+    if(f){ DB.settings.gcalPrivId=f.id; saveLocal(); return f.id; }
+  }catch(e){}
+  const r2=await gFetch("https://www.googleapis.com/calendar/v3/calendars",
+    {method:"POST",headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({summary:nm,timeZone:"Asia/Jerusalem",
+       description:"התיקים הפרטיים של המשרד — נוצר על ידי מערכת רונית פינץ ערוסי, רו״ח"})});
+  const j2=await r2.json();
+  if(!j2||!j2.id) throw new Error("לא הצלחתי ליצור את היומן");
+  DB.settings.gcalPrivId=j2.id; saveLocal();
+  try{ await gFetch("https://www.googleapis.com/calendar/v3/users/me/calendarList/"+encodeURIComponent(j2.id),
+    {method:"PATCH",headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({colorId:String(DB.settings.gcalColorPriv||"9")})}); }catch(e){}
+  return j2.id;
+}
+async function gcalCalFor(p){
+  if(planSrc(p)!=="private") return "primary";
+  try{ return await gcalPrivCal(); }catch(e){ return "primary"; }
+}
+const gcalBase=cal=>"https://www.googleapis.com/calendar/v3/calendars/"+encodeURIComponent(cal||"primary")+"/events";
+window.gcalPrivSetup=async()=>{
+  if(!drive.token){ toast("צריך להתחבר לגוגל קודם"); return; }
+  try{ const id=await gcalPrivCal(); saveLocal(); renderAll();
+    toast('היומן "'+(DB.settings.gcalPrivName||"")+'" מוכן'); return id; }
+  catch(e){ toast("לא הצליח: "+e.message); }
+};
 async function gcalUpsert(p,quiet){
   if(!DB.settings.gcal) return {ok:false,why:"off"};
   if(!drive.token){ p.evDirty=true; drive.needsAuth=true; return {ok:false,why:"auth"}; }
   const t=planTimes(p);
   const body={summary:planTitle(p),description:"תוכנן במערכת רונית פינץ ערוסי, רו״ח",
     start:{dateTime:t.start,timeZone:"Asia/Jerusalem"},end:{dateTime:t.end,timeZone:"Asia/Jerusalem"}};
-  const col=DB.settings.gcalColor;
+  const priv=planSrc(p)==="private";
+  const col=priv?(DB.settings.gcalColorPriv||"9"):DB.settings.gcalColor;
   if(col) body.colorId=String(col);
-  const base="https://www.googleapis.com/calendar/v3/calendars/primary/events";
+  const cal=await gcalCalFor(p);
+  if(priv&&p.evCal&&p.evCal!==cal&&p.evId){      /* עבר יומן — מוחקים מהישן */
+    try{ await gFetch(gcalBase(p.evCal)+"/"+p.evId,{method:"DELETE"}); }catch(e){}
+    p.evId=null;
+  }
+  p.evCal=cal;
+  const base=gcalBase(cal);
   const send=async(id)=>{
     const r=await gFetch(id?(base+"/"+id):base,
       {method:id?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     return r.json();
   };
   /* תכנון שעדיין אין לו אירוע — בודקים שלא קיים כבר אירוע זהה */
-  if(!p.evId){ const twin=await gcalFindTwin(p); if(twin) p.evId=twin; }
+  if(!p.evId){ const twin=await gcalFindTwin(p,cal); if(twin) p.evId=twin; }
   try{
     let j;
     try{ j=await send(p.evId); }
@@ -1200,7 +1252,7 @@ async function gcalUpsert(p,quiet){
          ולא בכל שגיאה — אחרת נוצרות כפילויות */
       const gone=p.evId&&/\b(404|410)\b/.test(e1.message||"");
       if(!gone) throw e1;
-      const twin=await gcalFindTwin(p);     /* אולי הוא קיים תחת מזהה אחר */
+      const twin=await gcalFindTwin(p,cal);     /* אולי הוא קיים תחת מזהה אחר */
       if(twin){ p.evId=twin; j=await send(twin); }
       else { p.evId=null; j=await send(null); }
     }
@@ -1215,7 +1267,7 @@ async function gcalUpsert(p,quiet){
 }
 async function gcalDelete(p){
   if(!p||!p.evId||!drive.token) return;
-  try{ await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+p.evId,{method:"DELETE"}); }
+  try{ await gFetch(gcalBase(p.evCal||"primary")+"/"+p.evId,{method:"DELETE"}); }
   catch(e){}
 }
 const busyOn=d=>(DB.busy||[]).filter(b=>b.date===d).sort((a,b)=>a.start<b.start?-1:1);
@@ -1645,12 +1697,12 @@ window.printScreen=function(){
   window.addEventListener("afterprint",restore);
   window.print(); setTimeout(restore,3000);
 };
-const printBtn=()=>`<div class="row noprint"><button class="ghost" onclick="printScreen()">הדפסה / PDF</button>
-  <button class="ghost" onclick="repToDrive()">💾 שמירה לתיקייה בדרייב</button>
-  <span class="mute" id="repDriveMsg"></span></div>`;
+const printBtn=()=>`<div class="tools noprint"><span class="mute repmsg"></span>
+  <button class="tbtn" onclick="repToDrive()" title="שמירת המסך כקובץ בתיקיית הדוחות בדרייב">💾 שמירה לדרייב</button>
+  <button class="tbtn" onclick="printScreen()" title="הדפסה או שמירה כ-PDF">🖨 הדפסה</button></div>`;
 window.repToDrive=async function(){
-  const msg=document.getElementById("repDriveMsg");
-  const say=(t,bad)=>{ if(msg) msg.innerHTML=bad?`<span class="flag">${esc(t)}</span>`:`<span class="ok">${esc(t)}</span>`; };
+  const say=(t,bad)=>{ const h=bad?`<span class="flag">${esc(t)}</span>`:`<span class="ok">${esc(t)}</span>`;
+    document.querySelectorAll(".repmsg").forEach(e=>e.innerHTML=h); };
   if(!drive.token){ say("צריך להתחבר לגוגל קודם",true); return; }
   try{
     say("שומר…");
@@ -1693,18 +1745,37 @@ function drillBox(){
   const H=["לקוח","שנה","סוג","הגשה","שכ\"ט","נוסף","חלקי","צפי","בפועל","נותרו",""];
   const box=(title,html)=>`<div id="drillBox" class="panel"><div class="row"><b>${title}</b>
     <button class="ghost noprint" onclick="drill('${k}')">סגירה</button></div>${html}</div>`;
-  if(k==="share"){
-    const billed=DB.bills.reduce((s,b)=>s+billAmount(b),0);
+  if(k==="share"||k==="full"||k==="mine"){
+    const bl=DB.bills.filter(b=>inSrc(billSrc(b)));
+    const billed=bl.reduce((s,b)=>s+billAmount(b),0);
+    const paid=bl.reduce((s,b)=>s+billPaid(b),0);
+    const part=mine.filter(t=>taskShare(t)<1), full=mine.filter(t=>taskShare(t)>=1);
+    const sum=(l,f)=>l.reduce((a,t)=>a+f(t),0);
+    const sharePart=sum(part,mineEff), fullMine=sum(full,mineEff);
+    const orphan=bl.filter(b=>!b.taskId||!mine.some(t=>t.id===b.taskId)).reduce((s,b)=>s+billAmount(b),0);
+    if(k==="share") return box("חלקי — "+Math.round(num(DB.settings.share)*100)+"% משכ\"ט המשרד",
+      `<div class="mute">רק משימות שבהן את לא מקבלת 100% — העבודה מול הורוביץ.
+        החלק שלך = שכ"ט × ${Math.round(num(DB.settings.share)*100)}% + תוספת נטו. למשימה שכבר נדרשה — הסכום שנדרש בפועל.</div>`+
+      table(H,part.map(row),["סה\"כ","","","",f0(sum(part,t=>num(t.fee))),f0(sum(part,t=>num(t.extra))),
+        f0(sharePart),f1(sum(part,t=>num(t.est))),f1(sum(part,t=>taskHours(t.id))),
+        f1(sum(part,taskRemaining)),""],[0,6,10]));
+    if(k==="full") return box("שכ\"ט מלא — 100% שלך",
+      `<div class="mute">משימות של לקוחות פרטיים, שבהן כל שכר הטרחה שלך.</div>`+
+      (full.length?table(H,full.map(row),["סה\"כ","","","",f0(sum(full,t=>num(t.fee))),f0(sum(full,t=>num(t.extra))),
+        f0(fullMine),f1(sum(full,t=>num(t.est))),f1(sum(full,t=>taskHours(t.id))),
+        f1(sum(full,taskRemaining)),""],[0,6,10]):'<div class="mute">אין עדיין משימות של לקוחות פרטיים בתצוגה הזו.</div>'));
     const notB=mine.filter(t=>!billedTask(t.id));
-    const notBSum=notB.reduce((s,t)=>s+taskMine(t),0);
-    return box("חלקי — מאיפה מורכב",
+    return box("סה\"כ שלי — מאיפה מורכב",
       table(["מרכיב","סכום"],[
-        ["נדרש לגבייה (שורות דרישת תשלום)",f0(billed)+" ₪"],
-        ["טרם דרשתי ("+notB.length+" משימות)",f0(notBSum)+" ₪"],
-        ["סה\"כ חלקי",`<b>${f0(billed+notBSum)} ₪</b>`],
-        ["מתוכם שולם",f0(DB.bills.reduce((s,b)=>s+billPaid(b),0))+" ₪"],
-        ["יתרה לגבייה",f0(billed-DB.bills.reduce((s,b)=>s+billPaid(b),0))+" ₪"]])
-      +`<div class="mute">שכ"ט המשרד בתיקים שלקחתי: ${f0(mine.reduce((s,t)=>s+num(t.fee),0))} ₪. ההפרש בין "חלקי" לשליש משכ"ט נובע מתוספות נטו, סכומים ידניים ושכ"ט לפי שעות.</div>`);
+        ["חלקי — "+part.length+" משימות חלקיות",f0(sharePart)+" ₪"],
+        ["שכ\"ט מלא — "+full.length+" משימות 100%",f0(fullMine)+" ₪"],
+        ...(orphan?[["דרישות שאינן משויכות למשימה",f0(orphan)+" ₪"]]:[]),
+        ["סה\"כ שלי",`<b>${f0(sharePart+fullMine+orphan)} ₪</b>`],
+        ["מזה כבר נדרש בדרישות תשלום",f0(billed)+" ₪"],
+        ["מזה טרם נדרש ("+notB.length+" משימות)",f0(notB.reduce((a,t)=>a+taskMine(t),0))+" ₪"],
+        ["מתוך הנדרש — שולם",f0(paid)+" ₪"],
+        ["יתרה לגבייה",f0(billed-paid)+" ₪"]])
+      +`<div class="mute">שכ"ט כולל בתיקים שלקחתי: ${f0(sum(mine,t=>num(t.fee)))} ₪.</div>`);
   }
   if(k==="tasks"||k==="fee") return box(
     k==="tasks"?"מתוך אילו משימות מורכב המספר":(k==="fee"?"שכ\"ט משרד — פירוט":"החלק שלך — פירוט"),
@@ -1749,7 +1820,7 @@ function drillBox(){
         (inc?"":` שעות כלליות (${f1(gen)}) אינן נכללות; אפשר להוסיף אותן בסימון "כולל כלליות" במסך מצב.`)+`</div>`);
   }
   if(k==="rate"){
-    const billed=DB.bills.reduce((s,b)=>s+billAmount(b),0);
+    const billed=DB.bills.filter(b=>inSrc(billSrc(b))).reduce((s,b)=>s+billAmount(b),0);
     const notB=mine.filter(t=>!billedTask(t.id)).reduce((s,t)=>s+taskMine(t),0);
     const allH=DB.time.reduce((s,x)=>s+num(x.hours),0), gen=generalHours(DB.time);
     const base=DB.settings.inclGeneral?allH:allH-gen, rem=open.reduce((s,t)=>s+taskRemaining(t),0);
@@ -1822,7 +1893,7 @@ function bkStrip(){
 function viewStatus(){
   const t0=today(), eom=new Date(t0.getFullYear(),t0.getMonth()+1,0), week=new Date(t0); week.setDate(week.getDate()+6);
   const mine=takenTasks(), open=mine.filter(isOpen);
-  const billed=DB.bills.reduce((s,b)=>s+billAmount(b),0);
+  const billed=DB.bills.filter(b=>inSrc(billSrc(b))).reduce((s,b)=>s+billAmount(b),0);
   const notBilled=mine.filter(t=>!billedTask(t.id));
   const notBilledSum=notBilled.reduce((s,t)=>s+taskMine(t),0);
   const allHours=DB.time.reduce((s,x)=>s+num(x.hours),0), gen=generalHours(DB.time);
@@ -1830,6 +1901,7 @@ function viewStatus(){
   const remaining=open.reduce((s,t)=>s+taskRemaining(t),0);
   const rateAct=base>0?billed/base:null;
   const rateAll=(base+remaining)>0?(billed+notBilledSum)/(base+remaining):null;
+  /* billed/notBilledSum כבר מחושבים מ-mineEff, כלומר חלקי + שכ"ט מלא יחד */
   const mode=S.rateMode||"all", rate=mode==="act"?rateAct:rateAll;
   const planIn=(a,b)=>DB.plans.filter(p=>p.date>=iso(a)&&p.date<=iso(b));
   const ph=list=>list.reduce((s,p)=>s+num(p.hours),0);
@@ -1842,8 +1914,19 @@ function viewStatus(){
   const free=cap-planned-busyLeft-actLeft;
   const late=DB.plans.filter(p=>p.date<iso(t0)&&(()=>{const t=taskById(p.taskId);return t&&isOpen(t);})());
   const review=DB.tasks.filter(t=>t.decision==="בבדיקה");
-  const dueAll=DB.bills.reduce((s,b)=>s+billAmount(b),0);
-  const paidAll=DB.bills.reduce((s,b)=>s+billPaid(b),0);
+  const srcBills=DB.bills.filter(b=>inSrc(billSrc(b)));
+  const dueAll=srcBills.reduce((s,b)=>s+billAmount(b),0);
+  const paidAll=srcBills.reduce((s,b)=>s+billPaid(b),0);
+  /* ---- הפרדה בין עבודה חלקית (שליש) לעבודה שהיא 100% שלי ---- */
+  const partTasks=mine.filter(t=>taskShare(t)<1);
+  const fullTasks=mine.filter(t=>taskShare(t)>=1);
+  const feeAll=mine.reduce((s,t)=>s+num(t.fee),0);
+  const feePart=partTasks.reduce((s,t)=>s+num(t.fee),0);
+  const sharePart=partTasks.reduce((s,t)=>s+mineEff(t),0);
+  const fullMine=fullTasks.reduce((s,t)=>s+mineEff(t),0);
+  const orphanBills=srcBills.filter(b=>!b.taskId||!mine.some(t=>t.id===b.taskId))
+    .reduce((s,b)=>s+billAmount(b),0);
+  const totMine=sharePart+fullMine+orphanBills;
   const todayIso=iso(t0);
   const needBill=mine.filter(t=>(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id))
     .map(t=>({t,why:"טרם נדרש תשלום",kind:"bill"}));
@@ -1867,12 +1950,14 @@ function viewStatus(){
       const openC=[...new Set(mine.filter(isOpen).map(t=>t.clientId))].length;
       return card("לקוחות",cnt,openC+" עם משימות פתוחות","","clients");})()}
    ${card("משימות לגבייה",mine.length,"","","tasks")}
-   ${card("שכ\"ט משרד",f0(mine.reduce((s,t)=>s+num(t.fee),0))+" ₪","","","fee")}
-   ${card("חלקי",f0(dueAll+notBilledSum)+" ₪","נדרש + טרם נדרש","","share")}
+   ${card("שכ\"ט כולל",f0(feeAll)+" ₪","הורוביץ והפרטי יחד","","fee")}
+   ${card("חלקי",f0(sharePart)+" ₪",partTasks.length+" משימות · "+Math.round(num(DB.settings.share)*100)+"% משכ\"ט","","share")}
+   ${card("שכ\"ט מלא",f0(fullMine)+" ₪",fullTasks.length+" משימות · 100% שלך","","full")}
+   ${card("סה\"כ שלי",f0(totMine)+" ₪","חלקי + שכ\"ט מלא","","mine")}
    ${card("שולם",f0(paidAll)+" ₪","מתוך "+f0(dueAll)+" שנדרשו",paidAll>=dueAll-0.5&&dueAll>0?"good":"")}
    ${card("% ששולם",dueAll>0?Math.round(paidAll/dueAll*100)+"%":"—","מהנדרש לגבייה")}
-   ${card("חלקי מתוך שכ\"ט",(()=>{const fee=mine.reduce((s,t)=>s+num(t.fee),0);
-      return fee>0?Math.round((dueAll+notBilledSum)/fee*100)+"%":"—";})(),"מסך שכ\"ט המשרד")}
+   ${card("חלקי מתוך שכ\"ט",feePart>0?Math.round(sharePart/feePart*100)+"%":"—",
+      "רק המשימות החלקיות · "+f0(feePart)+" ₪ שכ\"ט")}
    ${card("שעות בפועל",f1(DB.settings.inclGeneral?allHours:allHours-gen),
       DB.settings.inclGeneral?"כולל כלליות":"ללא כלליות","","hours")}
    ${(()=>{const tg=S.src?srcTarget(S.src):num(DB.settings.target);
@@ -2767,11 +2852,11 @@ function viewReports(){
           f0(t.fee),f0(taskMine(t)),taskHours(t.id)>0?f0(taskMine(t)/taskHours(t.id)):"",
           t.noBill?'לא לגבייה':(billedTask(t.id)?'<span class="ok">נדרש ✓</span>':(t.submit==="לטיפול"?"":'<span class="flag">טרם נדרש</span>'))]));
   };
-  if(S.clean) return `<div class="row noprint cleanbar">
-      <button class="act" id="outClose">✕ יציאה מתצוגה נקייה</button>
-      <button class="ghost" onclick="printReport()">🖨 הדפסה / PDF</button>
-      <button class="ghost" id="saveRep">💾 שמירה לתיקייה</button>
+  if(S.clean) return `<div class="tools noprint cleanbar">
       <span class="mute">${esc(REPNAMES[r]||"דוח")} · ${new Date().toLocaleDateString("he-IL")}</span>
+      <button class="tbtn" id="saveRep">💾 שמירה לדרייב</button>
+      <button class="tbtn" onclick="printReport()">🖨 הדפסה</button>
+      <button class="tbtn" id="outClose">✕ יציאה מתצוגה נקייה</button>
     </div>
     ${r==="doc"?"":`<div class="printHead" style="display:block"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
       <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>`}
@@ -2782,12 +2867,11 @@ function viewReports(){
     <button class="${r==="doc"?"act":"ghost"}" style="${r==="doc"?"":"border-color:var(--accent);color:var(--accent-d);font-weight:700"}"
       onclick="S.rep='doc';renderAll()">📄 מסמך רשמי ללקוח</button>
   </div>
-  <div class="row noprint" style="border-top:1px solid var(--line);padding-top:6px">
-    <span class="mute">פלט:</span>
-    <button class="ghost" id="outScreen">🖥 תצוגה נקייה</button>
-    <button class="ghost" onclick="printReport()">🖨 הדפסה / PDF</button>
-    <button class="act" id="saveRep">💾 שמירה לתיקייה</button>
-    <button class="ghost" id="xlsx">ייצוא לאקסל</button>
+  <div class="tools noprint"><span class="mute repmsg"></span>
+    <button class="tbtn" id="outScreen" title="תצוגה נקייה בלי תפריטים">🖥 תצוגה נקייה</button>
+    <button class="tbtn" id="xlsx" title="ייצוא הדוח לאקסל">⬇ אקסל</button>
+    <button class="tbtn" id="saveRep" title="שמירת הדוח בתיקיית הדוחות בדרייב">💾 שמירה לדרייב</button>
+    <button class="tbtn" onclick="printReport()" title="הדפסה או שמירה כ-PDF">🖨 הדפסה</button>
   </div>
   ${r==="doc"?"":`<div class="printHead"><div class="ph-title">${REPNAMES[r]||"דוח"}</div>
     <div class="ph-sub">רונית פינץ ערוסי, רו״ח · הופק ${new Date().toLocaleDateString("he-IL")} ${new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})}</div></div>`}
@@ -2795,6 +2879,7 @@ function viewReports(){
 }
 function viewClients(){
   const q=(S.clientQ||"").trim();
+  const TOOLS=printBtn();
   const ft=S.clientType||"";
   let list=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,"he"));
   if(q) list=list.filter(c=>((c.name||"")+" "+(c.fileNo||"")+" "+(c.notes||"")).indexOf(q)>=0);
@@ -2811,7 +2896,7 @@ function viewClients(){
       `<button class="mini" onclick="clientNotes('${c.id}')">פרטים נוספים</button>
        <button class="mini" onclick="editClient('${c.id}')">עריכה</button>
        <button class="mini danger" onclick="delClient('${c.id}')">מחיקה</button>`];});
-  return `${srcBar()}<h2>לקוחות (${list.length}${list.length!==DB.clients.length?" מתוך "+DB.clients.length:""})</h2>
+  return `${TOOLS}${srcBar()}<h2>לקוחות (${list.length}${list.length!==DB.clients.length?" מתוך "+DB.clients.length:""})</h2>
   <div class="mute">לקוח = תיק. כל שורת עבודה לשנה ולמוצר היא משימה בתוך התיק.</div>
   <div class="row noprint">
     <label>חיפוש<input id="clQ" value="${esc(q)}" placeholder="שם, מספר תיק, פרטים" style="width:190px"></label>
@@ -2904,6 +2989,37 @@ function viewData(){
     <div class="row"><button class="act" id="seedPriv">➕ הקמת הלקוחות הפרטיים</button>
       <span class="mute" id="seedMsg"></span></div>
   </div>
+  <h2>הגדרות הקוביות במסך מצב</h2>
+  <div class="panel">
+    <div class="mute">כאן כתוב בדיוק מה נספר בכל קובייה. מה שניתן לשינוי מסומן, השאר הוא הגדרה קבועה של המערכת.</div>
+    ${[
+      ["לקוחות","לקוחות שיש להם לפחות משימה אחת שסומנה <b>לקחתי</b> ואינה <b>לא לגבייה</b>. לקוח בלי משימה כזו לא נספר.","—"],
+      ["משימות לגבייה","כל המשימות שסומנו <b>לקחתי</b> ואינן <b>לא לגבייה</b>. משימות <b>בבדיקה</b> לא נספרות.","—"],
+      ["שכ\"ט כולל","סכום שכר הטרחה של כל המשימות שנספרות — הורוביץ והפרטי יחד.","—"],
+      ["חלקי","רק משימות שבהן החלק שלך קטן מ־100% (הורוביץ): שכ\"ט × <b>"+Math.round(num(DB.settings.share)*100)+"%</b> + תוספת נטו. משימה שכבר נדרשה נספרת לפי הסכום שנדרש בפועל.","אחוז החלק שלך"],
+      ["שכ\"ט מלא","משימות של לקוחות פרטיים — כל שכר הטרחה שלך, 100%.","סיווג הלקוח בכרטיס הלקוח"],
+      ["סה\"כ שלי","חלקי + שכ\"ט מלא. זה המספר שנכנס לחישוב ₪ לשעה.","—"],
+      ["שולם / % ששולם","סכום התקבולים שנרשמו בדרישות התשלום, חלקי הסכום שנדרש.","—"],
+      ["חלקי מתוך שכ\"ט","חלקי חלקי שכר הטרחה <b>של המשימות החלקיות בלבד</b>. משימות שהן 100% שלך לא נכנסות לחישוב הזה.","—"],
+      ["שעות בפועל","כל רישומי השעות. שעות כלליות (בלי לקוח ובלי משימה) "+(DB.settings.inclGeneral?"<b>נכללות</b>":"<b>אינן נכללות</b>")+".","סימון \"כולל כלליות\""],
+      ["₪ לשעה","סה\"כ שלי חלקי השעות. במצב <b>כולל צפי</b> נוספים גם סכומים שטרם נדרשו והשעות שנותרו.","מצב החישוב והיעד"],
+      ["נדרש לגבייה","סכום כל שורות דרישות התשלום, לפני מע\"מ, בלי החזר הוצאות.","—"],
+      ["טרם דרשתי","משימות שנספרות ועדיין אין עליהן דרישת תשלום.","—"],
+      ["משימות פתוחות","משימות שנספרות וסטטוס ההגשה שלהן אינו הוגש, טופל או בוטל.","—"],
+      ["שעות פנויות","ימי עסקים עד סוף החודש × שעות עבודה ביום, בניכוי מתוכנן, בוצע ופרטי מהיומן.","שעות עבודה ביום"],
+      ["בבדיקה","משימות שסומנו <b>בבדיקה</b> וטרם הוחלט עליהן.","—"]].map(x=>`<div class="defrow"><b>${x[0]}</b><span>${x[1]}</span><i>${x[2]==="—"?"":"ניתן לשינוי: "+x[2]}</i></div>`).join("")}
+    <div class="grid2" style="margin-top:6px">
+      <label>אחוז החלק שלך מול הורוביץ<input id="sShare2" type="number" step="1"
+        value="${Math.round(num(DB.settings.share)*100)}"></label>
+      <label>יעד ₪ לשעה — הורוביץ<input id="sTgt2" type="number" value="${num(DB.settings.target)}"></label>
+      <label>יעד ₪ לשעה — המשרד שלי<input id="sTgtP2" type="number" value="${num(DB.settings.targetPrivate||DB.settings.target)}"></label>
+      <label>שעות עבודה ביום<input id="sHpd2" type="number" step="0.5" value="${num(DB.settings.hoursPerDay)}"></label>
+      <label>שעות כלליות בחישוב<select id="sGen2">${opts([{v:"0",t:"לא נכללות"},{v:"1",t:"נכללות"}],DB.settings.inclGeneral?"1":"0")}</select></label>
+      <label>ברירת מחדל לחישוב ₪ לשעה<select id="sRate2">${opts([{v:"all",t:"כולל צפי שטרם נדרש"},{v:"act",t:"בפועל בלבד"}],S.rateMode||"all")}</select></label>
+    </div>
+    <div class="row"><button class="act" id="cardsSave">שמירת ההגדרות</button>
+      <span class="mute" id="cardsMsg"></span></div>
+  </div>
   <h2>משימות קבועות</h2>
   <div class="panel">
     <div class="mute">המערכת פותחת לבד את המשימות החוזרות של לקוחות שהוגדרו להן משימה קבועה בכרטיס הלקוח,
@@ -2980,7 +3096,12 @@ function viewData(){
     <label>תעריף ברירת מחדל לק"מ<input id="sKm" type="number" step="0.1" value="${DB.settings.kmRate}"></label>
     <label>מייל לשליחת דרישות<input id="sMail" value="${esc(DB.settings.billEmail||"")}"></label>
     <label>סנכרון תכנון ליומן גוגל<select id="sGcal">${opts([{v:"no",t:"כבוי"},{v:"yes",t:"פעיל"}],DB.settings.gcal?"yes":"no")}</select></label>
-    <label>צבע האירועים ביומן<select id="sGcol">${opts(GCOLORS,DB.settings.gcalColor==null?"7":String(DB.settings.gcalColor))}</select></label>
+    <label>צבע האירועים ביומן — הורוביץ<select id="sGcol">${opts(GCOLORS,DB.settings.gcalColor==null?"7":String(DB.settings.gcalColor))}</select></label>
+    <label>שם היומן הנפרד לתיקים הפרטיים<input id="sGpn" value="${esc(DB.settings.gcalPrivName||"משרד - רונית ערוסי")}"></label>
+    <label>צבע האירועים — המשרד שלי<select id="sGcolP">${opts(GCOLORS,String(DB.settings.gcalColorPriv||"9"))}</select></label>
+    <label>היומן הנפרד<span class="row" style="margin:0">
+      <button class="ghost" type="button" onclick="gcalPrivSetup()">${DB.settings.gcalPrivId?"בדיקה מחדש":"יצירת היומן בגוגל"}</button>
+      <span class="mute">${DB.settings.gcalPrivId?'<span class="ok">קיים ✓</span>':"טרם נוצר"}</span></span></label>
     <label>שעות כלליות בחישוב ₪ לשעה<select id="sGen">${opts([{v:"no",t:"לא"},{v:"yes",t:"כן"}],DB.settings.inclGeneral?"yes":"no")}</select></label>
   </div><div class="row"><button class="act" id="sSave">שמירת הגדרות</button>
     <button class="ghost" id="jsonOut">ייצוא גיבוי JSON</button>
@@ -3673,6 +3794,14 @@ function wire(){
     window.scrollTo({top:0,behavior:"smooth"}); };
   if(el("outClose")) el("outClose").onclick=()=>{ S.clean=false;
     document.body.classList.remove("clean"); renderAll(); showTab("reports"); };
+  if(el("cardsSave")) el("cardsSave").onclick=()=>{
+    const sh=+$("#sShare2").value; if(sh>0&&sh<=100) DB.settings.share=sh/100;
+    DB.settings.target=+$("#sTgt2").value||200;
+    DB.settings.targetPrivate=+$("#sTgtP2").value||DB.settings.target;
+    DB.settings.hoursPerDay=+$("#sHpd2").value||7;
+    DB.settings.inclGeneral=$("#sGen2").value==="1";
+    S.rateMode=$("#sRate2").value;
+    saveLocal();renderAll();toast("ההגדרות נשמרו");};
   if(el("seedPriv")) el("seedPriv").onclick=()=>{
     const log=[];
     const find=n=>DB.clients.find(c=>(c.name||"").trim()===n);
@@ -3751,8 +3880,14 @@ function wire(){
     DB.settings.kmRate=+$("#sKm").value||1;DB.settings.billEmail=$("#sMail").value.trim();DB.settings.inclGeneral=$("#sGen").value==="yes";
     DB.settings.gcal=$("#sGcal").value==="yes";
     const oldCol=String(DB.settings.gcalColor==null?"":DB.settings.gcalColor);
+    const oldColP=String(DB.settings.gcalColorPriv==null?"":DB.settings.gcalColorPriv);
     DB.settings.gcalColor=$("#sGcol").value;
-    if(String(DB.settings.gcalColor)!==oldCol) DB.plans.forEach(p=>{if(p.evId)p.evDirty=true;});
+    DB.settings.gcalColorPriv=$("#sGcolP").value;
+    const oldNm=DB.settings.gcalPrivName||"";
+    DB.settings.gcalPrivName=$("#sGpn").value.trim()||"משרד - רונית ערוסי";
+    if(DB.settings.gcalPrivName!==oldNm) DB.settings.gcalPrivId="";
+    if(String(DB.settings.gcalColor)!==oldCol||String(DB.settings.gcalColorPriv)!==oldColP)
+      DB.plans.forEach(p=>{if(p.evId)p.evDirty=true;});
     saveLocal();renderAll();
     toast(String(DB.settings.gcalColor)!==oldCol
       ?"ההגדרות נשמרו — ללוח החודשי ולחיצה על שליחה ליומן כדי להחיל את הצבע"
@@ -3808,7 +3943,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.98.0";
+const VER="4.01.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
