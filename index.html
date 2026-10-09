@@ -267,6 +267,8 @@ tr.rowpv td:first-child{box-shadow:inset -3px 0 0 var(--pv)}
  select,input,textarea{font-size:14px;padding:5px 7px;max-width:100%}
  input[type=number]{width:74px}input[type=date]{width:128px}
  .m-hide{display:none!important}
+ #drillBox th{white-space:normal;vertical-align:bottom}
+ #drillBox th,#drillBox td{padding:4px 3px}
  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;width:100%}
  table{font-size:11.5px;width:100%}
  th,td{padding:4px 5px;white-space:nowrap}
@@ -2031,7 +2033,7 @@ const billCid=b=>b.clientId||((b.taskId&&(taskById(b.taskId)||{}).clientId)||nul
 /* שורות לכל קובייה */
 function drillSpec(k){
   const D=stData(), sh=c=>srcShare(srcOf(c.id)), rows=[];
-  const retRow=(c,v)=>xRow(c.id,"ריטיינר "+f0(retOf(c).amount)+" לחודש · "+retMonthsPer(c).length+" חודשים",v,"ret");
+  const retRow=(c,v)=>xRow(c.id,"ריטיינר "+f0(retOf(c).amount)+" לחודש · "+(retMonthsPer(c).length===1?"חודש אחד":retMonthsPer(c).length+" חודשים"),v,"ret");
   const orphanOf=b=>!isRetBill(b)&&(!b.taskId||!D.mine.some(t=>t.id===b.taskId));
   if(k==="clients"){
     DB.clients.filter(c=>D.mine.some(t=>t.clientId===c.id)).forEach(c=>{
@@ -2088,13 +2090,13 @@ function drillSpec(k){
     D.bills.filter(b=>!isRetBill(b)).forEach(b=>{const t=b.taskId?taskById(b.taskId):null;
       const v={b:billAmount(b),r:0,n:0,h:0,rem:0};
       rows.push(t?tRow(t,v):xRow(billCid(b),"דרישה ללא משימה",v,"b"));});
-    D.rcs.forEach(c=>rows.push(xRow(c.id,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:retAccruedPer(c)*sh(c),n:0,h:0,rem:0},"ret")));
+    D.rcs.forEach(c=>rows.push(xRow(c.id,"ריטיינר",{b:0,r:retAccruedPer(c)*sh(c),n:0,h:0,rem:0},"ret")));
     if(all) D.mine.filter(t=>!inRet(t)&&!billedTask(t.id)).forEach(t=>rows.push(tRow(t,{b:0,r:0,n:taskMine(t),h:0,rem:0})));
     D.time.forEach(x=>{ const h=num(x.hours), t=x.taskId?taskById(x.taskId):null;
-      if(t){ if(rk(t)) rows.push(xRow(t.clientId,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:0,n:0,h,rem:0},"ret"));
+      if(t){ if(rk(t)) rows.push(xRow(t.clientId,"ריטיינר",{b:0,r:0,n:0,h,rem:0},"ret"));
              else rows.push(tRow(t,{b:0,r:0,n:0,h,rem:0})); }
       else if(x.clientId){ const c=clientOf(x.clientId);
-        rows.push(retOf(c)?xRow(x.clientId,"ריטיינר (כולל משימות בריטיינר)",{b:0,r:0,n:0,h,rem:0},"ret")
+        rows.push(retOf(c)?xRow(x.clientId,"ריטיינר",{b:0,r:0,n:0,h,rem:0},"ret")
           :xRow(x.clientId,"שעות על הלקוח בלי משימה",{b:0,r:0,n:0,h,rem:0},"cli")); }
       else if(inc) rows.push(xRow(null,"שעות לא לחיוב",{b:0,r:0,n:0,h,rem:0},"gen")); });
     if(all) D.open.forEach(t=>{const r=taskRemaining(t); if(r>0) rows.push(tRow(t,{b:0,r:0,n:0,h:0,rem:r}));});
@@ -2117,14 +2119,14 @@ function drillGeneric(k){
   const cn=c=>c?clientName(c):"כללי";
   const list=Object.values(groups).sort((a,b)=>cn(a.cid).localeCompare(cn(b.cid),"he")||String(a.lab).localeCompare(String(b.lab),"he"));
   const tot=list.reduce((a,g)=>add(a,g.v),Object.fromEntries(keys.map(k2=>[k2,0])));
-  const H=(by==="client"?["לקוח"]:["לקוח","משימה / מרכיב"]).concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1]))
+  const H=(by==="client"?["לקוח"]:["לקוח / משימה"]).concat(sp.cols.map(c=>c[1])).concat(der.map(d=>d[1]))
     .concat(by==="task"?[""]:[]);
   const body=list.map(g=>{
-    const r=[esc(cn(g.cid))]; if(by==="task") r.push(esc(g.lab));
+    const r=[by==="task"?`<b>${esc(cn(g.cid))}</b><br><span class="mute">${esc(g.lab)}</span>`:esc(cn(g.cid))];
     sp.cols.forEach(c=>r.push(fmt(g.v[c[0]],c[2]))); der.forEach(d=>r.push(fmt(d[2](g.v),d[0]==="%"?"%":"₪")));
     if(by==="task") r.push(g.tid?`<button class="mini" onclick="editTask('${g.tid}')">עריכה</button>`:"");
     return r;});
-  const T=[`סה"כ · ${list.length} ${by==="client"?"לקוחות":"שורות"}`]; if(by==="task") T.push("");
+  const T=[`סה"כ · ${list.length} ${by==="client"?"לקוחות":"שורות"}`];
   sp.cols.forEach(c=>T.push(`<b>${fmt(tot[c[0]],c[2])}</b>`)); der.forEach(d=>T.push(`<b>${fmt(d[2](tot),d[0]==="%"?"%":"₪")}</b>`));
   if(by==="task") T.push("");
   const mainCol=sp.cols.find(c=>c[0]===sp.main), mainDer=der.find(d=>d[0]===sp.main);
@@ -2133,7 +2135,7 @@ function drillGeneric(k){
   return `<div id="drillBox" class="panel"><div class="row"><b>${sp.title} — פירוט</b>
     ${sp.onlyClient?"":tg("client","לפי לקוח")+tg("task","לפי משימה")}
     <button class="ghost noprint" onclick="drill('${k}')">סגירה</button></div>
-    ${table(H,body,T,[0])}
+    ${table(H,body,T,H.map((h,i)=>i).filter(i=>!(by==="task"&&i===H.length-1)))}
     <div class="mute">סה"כ <b>${mainVal}</b> — זהה למספר בקובייה.${sp.note?" "+sp.note:""}</div></div>`;
 }
 
@@ -4662,8 +4664,12 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.20.0";
+const VER="4.21.0";
 const CHANGES=[
+ {v:"4.21.0",d:"2026-10-09",c:[
+  "תיקון: בטלפון הפירוט של כל קובייה הציג רק את עמודת הלקוח — עכשיו מוצגים כל הסכומים, השעות והתעריף",
+  "בתצוגה לפי משימה: שם הלקוח ומתחתיו שם המשימה, כך שאפשר להבחין בין שתי שורות של אותו לקוח",
+  "הפירוט נכנס ברוחב המסך בטלפון, בלי גלילה הצידה"]},
  {v:"4.20.0",d:"2026-10-09",c:[
   "כל קובייה במסך מצב פותחת פירוט שהסה\"כ שלו זהה בדיוק למספר בקובייה",
   "בכל פירוט מתג: לפי לקוח / לפי משימה",
