@@ -2422,11 +2422,18 @@ function dayPanel(k){
     ${bs.length?`<div class="panel" style="margin:6px 0;padding:8px 10px">
       <b>פרטי מיומן גוגל</b>
       <button class="mini" onclick="busyClear('${k}')">הסרת המשבצות של היום</button>
-      ${table(["שעה","שעות","מה ביומן","מקום"],bs.map(b=>[
-        esc(b.start||""),f1(b.hours),
+      ${table(["שעה","שעות","מה ביומן","מקום",""],bs.map(b=>[
+        `<input type="time" class="noprint" value="${esc(b.start||"09:00")}" style="width:104px"
+           onchange="busyEdit('${b.id}','start',this.value)">`,
+        `<input type="number" step="0.25" min="0.25" class="noprint" value="${num(b.hours)}" style="width:74px"
+           onchange="busyEdit('${b.id}','hours',this.value)">`,
         b.title?esc(b.title):'<span class="mute">ללא כותרת — צריך למשוך את היומן מחדש</span>',
-        esc(b.where||"")]),null)}
-      <div class="mute">התוכן הזה לא נכנס לדוח הלו"ז שנשלח למשרד.</div></div>`:""}
+        esc(b.where||""),
+        `<button class="mini" onclick="busyAssign('${b.id}')">שיוך לעבודה</button>
+         <button class="mini danger" onclick="busyDel('${b.id}')">הסרה</button>`]),null)}
+      <div id="busyForm"></div>
+      <div class="mute">התוכן הזה לא נכנס לדוח הלו"ז שנשלח למשרד.
+        משבצת שהיא בעצם עבודה — "שיוך לעבודה" הופך אותה לשעות על לקוח, ומעביר את האירוע ליומן המשרד שלך.</div></div>`:""}
     ${ps.length?table(["משימה","שעה","שעות","מצב","העברה ליום",""],ps.map(p=>{const t=taskById(p.taskId);
       return [t?taskLabel(t):"—",
         `<input type="time" class="noprint" value="${esc(p.start||"09:00")}" style="width:104px"
@@ -3452,6 +3459,64 @@ window.typeDel=t=>{
   if(DB.tasks.some(x=>x.type===t)){toast("הסוג בשימוש ולא ניתן למחיקה");return;}
   const list=((DB.settings.types&&DB.settings.types.length)?DB.settings.types:TYPEDEF).filter(x=>x!==t);
   DB.settings.types=list; saveLocal(); renderAll(); showTab("data"); toast("נמחק");};
+window.busyEdit=(id,f,v)=>{const b=(DB.busy||[]).find(x=>x.id===id); if(!b) return;
+  if(f==="hours"){const h=+v||0; if(h<=0){toast("שעות חייבות להיות גדולות מאפס");return;} b.hours=h;}
+  else b[f]=v;
+  saveLocal(); renderAll(); showTab("cal"); toast("המשבצת עודכנה");};
+window.busyDel=id=>{DB.busy=(DB.busy||[]).filter(x=>x.id!==id);
+  saveLocal(); renderAll(); showTab("cal"); toast("המשבצת הוסרה");};
+window.busyAssign=id=>{
+  const b=(DB.busy||[]).find(x=>x.id===id); if(!b) return;
+  const box=document.getElementById("busyForm"); if(!box) return;
+  const tasks=DB.tasks.filter(t=>billable(t)&&isOpen(t))
+    .sort((a,c)=>tName(a).localeCompare(tName(c),"he"));
+  const rets=DB.clients.filter(c=>retOf(c));
+  box.innerHTML=`<div class="panel" style="margin:6px 0;padding:8px 10px">
+    <b>שיוך לעבודה</b> <span class="mute">${esc(b.title||"")} · ${esc(b.start||"")} · ${f1(b.hours)} שעות</span>
+    <div class="grid2" style="margin-top:6px">
+      <label style="grid-column:1/-1">לאן לשייך<select id="baTask">
+        <optgroup label="משימות פתוחות">${tasks.map(t=>`<option value="t:${t.id}">${esc(taskLabel(t))}</option>`).join("")}</optgroup>
+        ${rets.length?`<optgroup label="ריטיינר">${rets.map(c=>`<option value="r:${c.id}">ריטיינר — ${esc(c.name)}</option>`).join("")}</optgroup>`:""}
+      </select></label>
+      <label>שעות<input id="baH" type="number" step="0.25" value="${num(b.hours)}"></label>
+      <label>מקום<select id="baW">${opts([{v:"home",t:"מהבית"},{v:"office",t:"במשרד"}],b.where?"office":"home")}</select></label>
+      <label style="grid-column:1/-1">תיאור<input id="baD" value="${esc(b.title||"")}"></label>
+    </div>
+    <div class="row"><button class="act" onclick="busyAssignSave('${id}')">שמירה כשעות עבודה</button>
+      <button class="ghost" onclick="document.getElementById('busyForm').innerHTML=''">ביטול</button></div>
+    <div class="mute">אם זו עבודה ללקוח פרטי, האירוע יועבר גם ליומן "${esc(DB.settings.gcalPrivName||"משרד - רונית ערוסי")}" בגוגל.</div>
+  </div>`;
+  box.scrollIntoView&&box.scrollIntoView({block:"nearest"});};
+window.busyAssignSave=async id=>{
+  const b=(DB.busy||[]).find(x=>x.id===id); if(!b) return;
+  const raw=document.getElementById("baTask").value||"";
+  const h=+document.getElementById("baH").value||0;
+  if(!raw){toast("צריך לבחור משימה או ריטיינר");return;}
+  if(h<=0){toast("צריך שעות");return;}
+  const office=document.getElementById("baW").value==="office";
+  const desc=(document.getElementById("baD").value||"").trim();
+  let ent={id:uid(),date:b.date,hours:h,office:office,desc:desc};
+  let cid=null;
+  if(raw.indexOf("r:")===0){ cid=raw.slice(2); ent.taskId=null; ent.clientId=cid; }
+  else { const t=taskById(raw.slice(2)); if(!t){toast("המשימה לא נמצאה");return;}
+    ent.taskId=t.id; ent.clientId=t.clientId; cid=t.clientId; }
+  DB.time.push(ent);
+  DB.busy=(DB.busy||[]).filter(x=>x.id!==id);
+  saveLocal(); renderAll(); showTab("cal");
+  toast(f1(h)+" שעות נרשמו ל"+(cid?clientName(cid):"עבודה"));
+  /* אירוע של לקוח פרטי עובר ליומן המשרד הפרטי */
+  if(cid&&srcOf(cid)==="private"&&drive.token&&b.id){
+    try{
+      const cal=await gcalPrivCal();
+      await gFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/"+
+        encodeURIComponent(b.id)+"/move?destination="+encodeURIComponent(cal),{method:"POST"});
+      try{ await gFetch(gcalBase(cal)+"/"+encodeURIComponent(b.id),
+        {method:"PATCH",headers:{"Content-Type":"application/json"},
+         body:JSON.stringify({colorId:String(DB.settings.gcalColorPriv||"9")})}); }catch(e){}
+      toast("האירוע הועבר ליומן "+(DB.settings.gcalPrivName||"המשרד שלי"));
+    }catch(e){ toast("השעות נרשמו, אבל העברת האירוע ביומן נכשלה: "+(e.message||"")); }
+  }
+};
 window.busyClear=k=>{ DB.busy=(DB.busy||[]).filter(b=>b.date!==k);
   saveLocal(); renderAll(); showTab("cal"); toast("המשבצות הפרטיות הוסרו מ"+heDate(k)); };
 window.planDel=id=>{const p=DB.plans.find(x=>x.id===id);
@@ -4162,8 +4227,12 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.11.0";
+const VER="4.12.0";
 const CHANGES=[
+ {v:"4.12.0",d:"2026-10-09",c:[
+  "משבצת שנמשכה מיומן גוגל ניתנת לעריכה: שעה, משך והסרה בודדת",
+  "\"שיוך לעבודה\" הופך משבצת כזו לשעות על משימה או על ריטיינר, עם התיאור מהיומן",
+  "אירוע של לקוח פרטי מועבר אוטומטית ליומן המשרד שלי בגוגל ומקבל את הצבע שלו"]},
  {v:"4.11.0",d:"2026-10-09",c:[
   "לוג הגרסאות במסך נתונים מקופל, ונפתח בלחיצה על הפלוס"]},
  {v:"4.10.0",d:"2026-10-09",c:[
