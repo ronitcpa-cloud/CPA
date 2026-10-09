@@ -113,8 +113,8 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
 .cal .d .c.done{background:#e2e7fb;color:#31409b;border-color:#bcc6f0}
 .cal .d .c.fin{background:#e7f6f0;color:#0b6b57;border-color:#b6e0d1;text-decoration:none}
 .cal .d .c.busy{background:#eef1f4;color:#5c6875;border-color:#d3dae1}
-.cal .d .c.priv{background:#d8f3ef;color:#0a4f4a;border-color:#8fd8cf;font-weight:600}
-.cal .d .c.priv.fin{background:#c8ece6;color:#07443f;border-color:#79cdc2}
+.cal .d .c.priv{background:#efe9fb;color:#55359f;border-color:#cdbcf0;font-weight:600}
+.cal .d .c.priv.fin{background:#e4dbf7;color:#452b85;border-color:#bca8e8}
 .cal .d.sel{outline:2px solid var(--accent)}
 .paydoc{background:#fff;border:1px solid var(--line);border-radius:10px;padding:22px 26px;max-width:860px;margin:8px auto;color:var(--ink)}
 .pd-top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;
@@ -169,13 +169,13 @@ details>summary{cursor:pointer;color:var(--ink-2);font-size:14px;padding:5px 2px
  padding:4px 11px;font:inherit;font-size:13px;cursor:pointer}
 .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
 /* זהות ויזואלית נפרדת למשרד הפרטי — טורקיז במקום כחול */
-body.src-private{--ink:#0a4f4a;--ink-2:#3c7d78;--line:#c6e5e1;--bg:#eefaf8;
- --accent:#12a89a;--accent-d:#0b8277;--accent-2:#dcf4f1}
-body.src-private header{background:linear-gradient(105deg,#0a4f4a 0%,#0e7d73 60%,#12a89a 140%)}
+/* מצב "המשרד שלי" — סימון בלחצנים ובמתג בלבד. הרקע, הכותרת והטקסט לא משתנים. */
+body.src-private{--accent:#6d47c9;--accent-d:#55359f;--accent-2:#efe9fb}
 body.src-private nav button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);
- box-shadow:0 1px 4px rgba(18,168,154,.35)}
-body.src-private button.act{background:linear-gradient(180deg,#17b8a8,#0b8277)}
-body.src-private .srcbar{background:var(--accent-2);border-color:#a9ded8}
+ box-shadow:0 1px 4px rgba(109,71,201,.3)}
+body.src-private button.act{background:linear-gradient(180deg,#7b57d6,#55359f)}
+body.src-private .srcbar{background:var(--accent-2);border-color:#cdbcf0}
+body.src-private .srcbar .pk.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .srcbar{display:flex;gap:6px;align-items:center;background:var(--accent-2);border:1px solid #a9d6f7;
  border-radius:10px;padding:6px 10px;margin:0 0 8px}
 .srcbar b{font-size:13px}
@@ -817,10 +817,79 @@ async function driveSave(silent){
     const j=await r.json(); dSave({dataId:j.id,saved:Date.now()});
     if(!silent) dInfo("נשמר בדרייב ✓");
     setHdr();
+    driveBackup(false,true);
   }catch(e){ if(e.message==="auth"){ drive.needsAuth=true; setHdr();
       if(!silent) dInfo("פג תוקף החיבור לגוגל — יש ללחוץ על \"התחבר לגוגל\"",true); return; }
     dInfo("השמירה נכשלה: "+e.message,true);}
 }
+/* ===== גיבוי מתוארך בדרייב — עותק נפרד לכל יום, נשמרים עשרה אחרונים ===== */
+const BKPRE="גיבוי CPA ", BKKEEP=10, BKDAY="cpa-bk-day", BKDL="cpa-lastdl";
+let BKCACHE=null, bkBusy=false;
+const dlDays=()=>{const t=+(localStorage.getItem(BKDL)||0); return t?Math.floor((Date.now()-t)/864e5):null;};
+const dlDue=()=>{const d=dlDays(); return d===null||d>=7;};
+async function bkParent(){
+  try{ const st=dState(); if(!st.dataId) return null;
+    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+st.dataId+"?fields=parents");
+    const j=await r.json(); return (j.parents||[])[0]||null; }catch(e){ return null; }
+}
+async function bkList(){
+  const q=encodeURIComponent("name contains '"+BKPRE+"' and trashed=false");
+  const r=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+
+    "&fields=files(id,name,size,modifiedTime)&orderBy=name desc&pageSize=60");
+  const j=await r.json(); BKCACHE=(j.files||[]); return BKCACHE;
+}
+async function bkPrune(){
+  const fs=BKCACHE||await bkList();
+  for(const f of fs.slice(BKKEEP)){
+    try{ await gFetch("https://www.googleapis.com/drive/v3/files/"+f.id,{method:"DELETE"}); }catch(e){}
+  }
+  if(fs.length>BKKEEP) BKCACHE=fs.slice(0,BKKEEP);
+}
+async function driveBackup(force,silent){
+  if(bkBusy) return; 
+  try{
+    if(!drive.token) return;
+    const day=iso(today());
+    if(!force&&localStorage.getItem(BKDAY)===day) return;
+    bkBusy=true;
+    const name=BKPRE+day+".json";
+    const q=encodeURIComponent("name='"+name+"' and trashed=false");
+    const r0=await gFetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id)");
+    const ex=((await r0.json()).files||[])[0];
+    const meta={name:name,mimeType:"application/json"};
+    if(!ex){ const par=await bkParent(); if(par) meta.parents=[par]; }
+    const form=new FormData();
+    form.append("metadata",new Blob([JSON.stringify(meta)],{type:"application/json"}));
+    form.append("file",new Blob([JSON.stringify(DB)],{type:"application/json"}));
+    await gFetch("https://www.googleapis.com/upload/drive/v3/files"+(ex?"/"+ex.id:"")+"?uploadType=multipart",
+      {method:ex?"PATCH":"POST",body:form});
+    localStorage.setItem(BKDAY,day);
+    BKCACHE=null; await bkList(); await bkPrune();
+    if(!silent) dInfo("גיבוי יומי נשמר בדרייב ✓");
+  }catch(e){ if(!silent) dInfo("הגיבוי היומי נכשל: "+e.message,true); }
+  finally{ bkBusy=false; }
+}
+window.bkNow=()=>driveBackup(true,false).then(()=>renderAll());
+window.bkRefresh=()=>bkList().then(()=>renderAll()).catch(e=>dInfo("לא ניתן לקרוא את רשימת הגיבויים: "+e.message,true));
+window.bkRestore=async id=>{
+  const f=(BKCACHE||[]).find(x=>x.id===id);
+  if(!confirm("לשחזר את הנתונים מהגיבוי "+((f&&f.name)||"")+"?\nכל מה שיש עכשיו במכשיר יוחלף. המצב הנוכחי יישמר כגיבוי מקומי.")) return;
+  try{
+    const r=await gFetch("https://www.googleapis.com/drive/v3/files/"+id+"?alt=media");
+    const d=await r.json();
+    if(!d||!Array.isArray(d.tasks)) throw new Error("הקובץ אינו גיבוי תקין");
+    snapTake("לפני שחזור מגיבוי בדרייב");
+    DB=Object.assign(DB,d); migrate(); saveLocal(); renderAll(); showTab("data");
+    toast("שוחזר מהגיבוי ✓");
+  }catch(e){ dInfo("השחזור נכשל: "+e.message,true); }
+};
+window.bkDownload=()=>{
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
+  a.download="גיבוי CPA "+iso(today())+".json"; a.click();
+  localStorage.setItem(BKDL,String(Date.now()));
+  setTimeout(renderAll,300);
+};
 const SNAP="cpa-snaps";
 function snapList(){ try{return JSON.parse(localStorage.getItem(SNAP)||"[]");}catch(e){return [];} }
 function snapTake(why){
@@ -1599,6 +1668,14 @@ function srcBar(){
     ${S.src==="private"?'<span class="mute">כל המספרים במסך מתייחסים למשרד הפרטי בלבד</span>':""}
     ${S.src==="horowitz"?'<span class="mute">כל המספרים במסך מתייחסים לעבודה מול הורוביץ בלבד</span>':""}</div>`;
 }
+function bkStrip(){
+  if(!dlDue()) return "";
+  const d=dlDays();
+  return `<div class="noprint" style="background:#fdf2e3;border:1px solid #f0cf96;border-radius:8px;
+    padding:8px 11px;margin-bottom:6px;font-size:13.5px">
+    <b>גיבוי למחשב</b> — ${d===null?"עדיין לא הורדת עותק מקומי":"ההורדה האחרונה לפני "+d+" ימים"}.
+    <button class="act" style="margin-right:6px" onclick="bkDownload()">⬇ הורדה עכשיו</button></div>`;
+}
 function viewStatus(){
   const t0=today(), eom=new Date(t0.getFullYear(),t0.getMonth()+1,0), week=new Date(t0); week.setDate(week.getDate()+6);
   const mine=takenTasks(), open=mine.filter(isOpen);
@@ -1641,7 +1718,7 @@ function viewStatus(){
       bill:b,why:"דרישה על 0 ₪",kind:"zero"};});
   const seen={}; const attention=[...noFee,...needBill,...zeroBills,...workedNotBilled,...latePlan,...noPlan,...noDate]
     .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
-  return `${printBtn()}${srcBar()}${printHead("מצב פיננסי"+(S.src?" — "+srcLabel(S.src):""))}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
+  return `${bkStrip()}${printBtn()}${srcBar()}${printHead("מצב פיננסי"+(S.src?" — "+srcLabel(S.src):""))}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
    ${(()=>{const cnt=DB.clients.filter(c=>mine.some(t=>t.clientId===c.id)).length;
       const openC=[...new Set(mine.filter(isOpen).map(t=>t.clientId))].length;
@@ -1934,7 +2011,7 @@ function viewCal(){
     <span><i style="background:#dff0fd;border:1px solid #a9d6f7"></i>מתוכנן</span>
     <span><i style="background:#e2e7fb;border:1px solid #bcc6f0"></i>בוצע בפועל</span>
     <span><i style="background:#e7f6f0;border:1px solid #b6e0d1"></i>תכנון שבוצע</span>
-    <span><i style="background:#d8f3ef;border:1px solid #8fd8cf"></i>◆ לקוח פרטי שלי</span>
+    <span><i style="background:#efe9fb;border:1px solid #cdbcf0"></i>◆ לקוח פרטי שלי</span>
     <span><i style="background:#eef1f4;border:1px solid #d3dae1"></i>פרטי (מיומן גוגל)</span>
     <span><i style="background:#f0ebf8;border:1px solid #d9cfec"></i>חופשה</span>
     <span>🏢 יום משרד</span>
@@ -2630,6 +2707,34 @@ function viewData(){
       return table(["מתי","סיבה","לקוחות","משימות","שעות","דרישות",""],
         a.map((x,i)=>[new Date(x.at).toLocaleString("he-IL"),x.why||"",x.n.c,x.n.t,x.n.h,x.n.b,
           `<button class="mini" onclick="snapRestore(${i})">שחזור</button>`]),null);})()}
+  </div>
+  <div class="panel">
+    <b>גיבויים מתוארכים בדרייב</b>
+    <div class="mute">בנוסף לקובץ הנתונים השוטף, פעם ביום נשמר בדרייב עותק נפרד עם תאריך, באותה תיקייה.
+      נשמרים ${BKKEEP} האחרונים וישנים יותר נמחקים לבד. גיבוי מתוארך לא נדרס, ולכן אפשר תמיד לחזור ליום מסוים.</div>
+    <div class="row noprint">
+      <button class="act" onclick="bkNow()">שמירת גיבוי עכשיו</button>
+      <button class="ghost" onclick="bkRefresh()">רענון הרשימה</button>
+      <button class="ghost" onclick="bkDownload()">⬇ הורדת גיבוי למחשב</button>
+    </div>
+    ${(()=>{
+      if(!drive.token) return '<div class="mute">צריך להתחבר לגוגל כדי לראות את הגיבויים.</div>';
+      if(BKCACHE===null) return '<div class="mute">לחיצה על "רענון הרשימה" תטען את הגיבויים מהדרייב.</div>';
+      if(!BKCACHE.length) return '<div class="mute">אין עדיין גיבויים מתוארכים.</div>';
+      return table(["קובץ","נשמר","גודל",""],
+        BKCACHE.map(f=>[esc(f.name),
+          f.modifiedTime?new Date(f.modifiedTime).toLocaleString("he-IL"):"",
+          f.size?Math.round(num(f.size)/1024)+" KB":"",
+          `<button class="mini" onclick="bkRestore('${f.id}')">שחזור</button>`]),null);})()}
+  </div>
+  <div class="panel">
+    <b>עותק מקומי במחשב</b>
+    <div class="mute">${(()=>{const d=dlDays();
+      return d===null?'<span class="flag">עדיין לא הורדת גיבוי למחשב.</span>'
+        :(d>=7?'<span class="flag">ההורדה האחרונה לפני '+d+' ימים.</span>'
+              :'<span class="ok">הורדה אחרונה לפני '+d+' ימים ✓</span>');})()}
+      זו השכבה היחידה שלא תלויה לא בדפדפן ולא בדרייב. מומלץ אחת לשבוע.</div>
+    <div class="row noprint"><button class="${dlDue()?"act":"ghost"}" onclick="bkDownload()">⬇ הורדת גיבוי למחשב</button></div>
   </div>
   <h2>הלקוחות הפרטיים שלי</h2>
   <div class="panel">
@@ -3455,9 +3560,7 @@ function wire(){
     toast(String(DB.settings.gcalColor)!==oldCol
       ?"ההגדרות נשמרו — ללוח החודשי ולחיצה על שליחה ליומן כדי להחיל את הצבע"
       :"ההגדרות נשמרו");};
-  if(el("jsonOut")) el("jsonOut").onclick=()=>{
-    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
-    a.download="cpa-backup-"+iso(today())+".json";a.click();};
+  if(el("jsonOut")) el("jsonOut").onclick=()=>bkDownload();
   if(el("jsonIn")) el("jsonIn").onchange=async e=>{
     const f=e.target.files[0]; if(!f) return;
     if(!confirm("טעינת הגיבוי תחליף את כל הנתונים במכשיר הזה. להמשיך?")){e.target.value="";return;}
@@ -3508,7 +3611,7 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="3.94.0";
+const VER="3.96.0";
 function renderAll(){ try{ renderAllInner(); }catch(e){
   $("#s-status").innerHTML='<div class="panel"><b class="flag">שגיאה בתצוגה</b><div class="mute">'+esc(e.message)+'</div><pre style="white-space:pre-wrap;font-size:11px">'+esc((e.stack||"").slice(0,600))+'</pre></div>';
   showTab("status"); } }
