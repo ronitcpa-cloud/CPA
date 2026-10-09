@@ -549,18 +549,50 @@ const inRet=t=>{ if(!t||!t.clientId) return false;
   const c=clientOf(t.clientId); if(!retOf(c)) return false;
   return t.inRet!==false; };
 const retClients=()=>DB.clients.filter(c=>retOf(c)&&inSrc(srcOf(c.id)));
-function retMonths(c){
+function retMonths(c,until){
   const r=retOf(c); if(!r||!r.from) return [];
-  const now=iso(today()).slice(0,7);
-  const last=(r.to&&r.to<now)?r.to:now;
+  const cap=until||iso(today()).slice(0,7);
+  const last=(r.to&&r.to<cap)?r.to:cap;
   const out=[]; let [Y,M]=r.from.split("-").map(Number);
   for(let i=0;i<120;i++){ const m=Y+"-"+pad2(M); if(m>last) break; out.push(m); M++; if(M>12){M=1;Y++;} }
   return out;
 }
 const retAccrued=c=>retMonths(c).length*num(retOf(c)?retOf(c).amount:0);
+/* לפי התקופה שנבחרה במסך מצב */
+const retMonthsPer=c=>{const p=perRange();
+  /* כשהמשתמשת ביטלה את חסימת העתיד — סופרים עד סוף התקופה שנבחרה */
+  const cap=(S.perNoFuture===false&&p.to!=="9999-99")?p.to:undefined;
+  return retMonths(c,cap).filter(inPer);};
+const retAccruedPer=c=>retMonthsPer(c).length*num(retOf(c)?retOf(c).amount:0);
 const retHours=c=>DB.time.filter(x=>{
   if(x.taskId){ const t=taskById(x.taskId); return !!(t&&t.clientId===c.id&&inRet(t)); }
   return x.clientId===c.id;}).reduce((s,x)=>s+num(x.hours),0);
+const isRetBill=b=>!!(b&&b.ret);
+const retBillFor=(cid,m)=>DB.bills.find(b=>isRetBill(b)&&b.clientId===cid&&b.month===m)||null;
+const retBilledSum=c=>DB.bills.filter(b=>isRetBill(b)&&b.clientId===c.id)
+  .reduce((s,b)=>s+billAmount(b),0);
+const retUnbilled=c=>Math.max(0,r2(retAccrued(c)-retBilledSum(c)));
+/* חודשי ריטיינר בתקופה שאין עליהם דרישה */
+const retUnbilledPer=c=>r2(retMonthsPer(c).filter(m=>!retBillFor(c.id,m)).length*num(retOf(c)?retOf(c).amount:0));
+/* יצירת דרישות ריטיינר לחודש — אחת לכל לקוח ריטיינר פעיל שאין לו עדיין */
+window.retBillMonth=m=>{
+  m=m||S.billMonth||defaultMonth();
+  let n=0;
+  DB.clients.forEach(c=>{
+    const r0=retOf(c); if(!r0) return;
+    if(retMonths(c).indexOf(m)<0) return;          /* החודש מחוץ לתקופת הריטיינר */
+    if(retBillFor(c.id,m)) return;                 /* כבר קיימת */
+    DB.bills.push({id:uid(),month:m,taskId:null,clientId:c.id,year:+m.slice(0,4),
+      date:iso(today()),fee:0,extra:0,other:num(r0.amount),amount:num(r0.amount),
+      rate:null,hours:null,ret:true,src:srcOf(c.id),
+      use:{share:false,rate:false,extra:false,other:true},
+      vat:{share:true,rate:true,extra:true,other:true},
+      vatRate:num(DB.settings.vat),note:"ריטיינר חודשי",payments:[]});
+    n++;});
+  if(!n){ toast("אין ריטיינר חדש לחייב בחודש "+m); return; }
+  saveLocal(); renderAll(); showTab("bills");
+  toast(n+" דרישות ריטיינר נוצרו לחודש "+m);
+};
 const retEstMonth=c=>num((retOf(c)||{}).estMonth);
 const retEstTotal=c=>retMonths(c).length*retEstMonth(c);
 const retHoursIn=(c,m)=>DB.time.filter(x=>!x.taskId&&x.clientId===c.id&&monthOf(x.date)===m)
@@ -617,6 +649,8 @@ const r2=n=>Math.round(n*100)/100;
 const vatRate=b=>(b&&b.vatRate!=null)?num(b.vatRate):num(DB.settings.vat);
 /* רכיבי הדרישה. דרישות ישנות (ללא b.use) ממשיכות להתנהג בדיוק כמו קודם. */
 function billComp(b){
+  if(b&&b.ret) return [{k:"other",label:"ריטיינר חודשי — "+(b.month||""),
+    amount:r2(num(b.amount)),vat:!(b.vat&&b.vat.other===false)}];
   if(!b) return [];
   if(!b.use){
     if(b.amount!=null&&b.amount!=="") return [{k:"other",label:"סכום",amount:num(b.amount),vat:true}];
@@ -2077,6 +2111,39 @@ function srcBar(){
     ${S.src==="private"?'<span class="mute">כל המספרים במסך מתייחסים למשרד הפרטי בלבד</span>':""}
     ${S.src==="horowitz"?'<span class="mute">כל המספרים במסך מתייחסים לעבודה מול הורוביץ בלבד</span>':""}</div>`;
 }
+/* ===== תקופה במסך מצב ===== */
+const PERMODES=[{v:"upto",t:"עד החודש הנוכחי"},{v:"year",t:"השנה הנוכחית — מצטבר"},
+  {v:"range",t:"טווח חודשים"},{v:"all",t:"הכול"}];
+function perRange(){
+  const cur=iso(today()).slice(0,7), y=cur.slice(0,4);
+  const mode=S.perMode||"upto";
+  let from="0000-00", to="9999-99";
+  if(mode==="upto"){ to=cur; }
+  else if(mode==="year"){ from=y+"-01"; to=y+"-12"; }
+  else if(mode==="range"){ from=S.perFrom||y+"-01"; to=S.perTo||cur;
+    if(from>to){const x=from;from=to;to=x;} }
+  if(S.perNoFuture!==false&&to>cur) to=cur;     /* בלי חודשים עתידיים */
+  return {mode,from,to,cur};
+}
+const inPer=m=>{ if(!m) return false; const r=perRange(); return m>=r.from&&m<=r.to; };
+const inPerDate=d=>inPer(String(d||"").slice(0,7));
+function perBar(){
+  const r=perRange();
+  return `<div class="srcbar noprint"><b>תקופה:</b>
+    ${PERMODES.map(x=>`<button class="chip${r.mode===x.v?" on":""}" data-per="${x.v}">${x.t}</button>`).join("")}
+    ${r.mode==="range"?`<label class="mute" style="margin:0">מ<input type="month" id="perF" value="${esc(r.from)}" style="width:132px"></label>
+      <label class="mute" style="margin:0">עד<input type="month" id="perT" value="${esc(S.perTo||r.to)}" style="width:132px"></label>`:""}
+    <label class="mute" style="margin:0"><input type="checkbox" id="perNF" ${S.perNoFuture!==false?"checked":""}> בלי חודשים עתידיים</label>
+    <span class="mute">· נספר ${esc(r.from==="0000-00"?"מההתחלה":r.from)} עד ${esc(r.to==="9999-99"?"הסוף":r.to)}</span></div>`;
+}
+/* שיוך משימה לתקופה: לפי חודש הדרישה אם נדרשה, אחרת לפי יעד ההגשה */
+function perTask(t){
+  const r=perRange(); if(r.mode==="all") return true;
+  const bs=DB.bills.filter(b=>b.taskId===t.id);
+  if(bs.length) return bs.some(b=>inPer(b.month));
+  if(t.sched) return inPer(String(t.sched).slice(0,7));
+  return true;                      /* בלי יעד הגשה — תמיד נספרת */
+}
 function bkStrip(){
   if(!dlDue()) return "";
   const d=dlDays();
@@ -2087,17 +2154,19 @@ function bkStrip(){
 }
 function viewStatus(){
   const t0=today(), eom=new Date(t0.getFullYear(),t0.getMonth()+1,0), week=new Date(t0); week.setDate(week.getDate()+6);
-  const mine=takenTasks(), open=mine.filter(isOpen);
-  const billed=DB.bills.filter(b=>inSrc(billSrc(b))).reduce((s,b)=>s+billAmount(b),0);
+  const mine=takenTasks().filter(t=>perTask(t)), open=mine.filter(isOpen);
+  /* "דורש טיפול" ו"פתוח מול לקוחות" הם תור עבודה, לא כסף — הם לא מסוננים לפי תקופה */
+  const mineQ=takenTasks(), openQ=mineQ.filter(isOpen);
+  const billed=DB.bills.filter(b=>inSrc(billSrc(b))&&inPer(b.month)).reduce((s,b)=>s+billAmount(b),0);
   const notBilled=mine.filter(t=>!inRet(t)&&!billedTask(t.id));
-  const notBilledSum=notBilled.reduce((s,t)=>s+taskMine(t),0);
+  const retNotBilled=retClients().reduce((a,c)=>a+retUnbilledPer(c)*srcShare(srcOf(c.id)),0);
+  const notBilledSum=notBilled.reduce((s,t)=>s+taskMine(t),0)+retNotBilled;
   /* ריטיינר = שכר טרחה לכל דבר: הסכום שנצבר מתחילת הריטיינר ועד החודש הנוכחי */
   const retCs=retClients();
-  const retFee=retCs.reduce((a,c)=>a+retAccrued(c),0);
-  const retPart=retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c)*srcShare(srcOf(c.id)),0);
-  const retFull=retCs.filter(c=>srcShare(srcOf(c.id))>=1).reduce((a,c)=>a+retAccrued(c),0);
-  const retMonthsN=retCs.reduce((a,c)=>Math.max(a,retMonths(c).length),0);
-  const srcTime=DB.time.filter(timeInSrc);
+  const retFee=retCs.reduce((a,c)=>a+retAccruedPer(c),0);
+  const retPart=retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccruedPer(c)*srcShare(srcOf(c.id)),0);
+  const retFull=retCs.filter(c=>srcShare(srcOf(c.id))>=1).reduce((a,c)=>a+retAccruedPer(c),0);
+  const srcTime=DB.time.filter(x=>timeInSrc(x)&&inPerDate(x.date));
   const allHours=srcTime.reduce((s,x)=>s+num(x.hours),0), gen=generalHours(srcTime);
   const base=DB.settings.inclGeneral?allHours:allHours-gen;
   const remaining=open.reduce((s,t)=>s+taskRemaining(t),0);
@@ -2117,7 +2186,7 @@ function viewStatus(){
   const free=cap-planned-busyLeft-actLeft;
   const late=DB.plans.filter(p=>p.date<iso(t0)&&(()=>{const t=taskById(p.taskId);return t&&isOpen(t);})());
   const review=DB.tasks.filter(t=>t.decision==="בבדיקה");
-  const srcBills=DB.bills.filter(b=>inSrc(billSrc(b)));
+  const srcBills=DB.bills.filter(b=>inSrc(billSrc(b))&&inPer(b.month));
   const dueAll=srcBills.reduce((s,b)=>s+billAmount(b),0);
   const paidAll=srcBills.reduce((s,b)=>s+billPaid(b),0);
   /* ---- הפרדה בין עבודה חלקית (שליש) לעבודה שהיא 100% שלי ---- */
@@ -2128,27 +2197,27 @@ function viewStatus(){
     retCs.filter(c=>srcShare(srcOf(c.id))<1).reduce((a,c)=>a+retAccrued(c),0);
   const sharePart=partTasks.reduce((s,t)=>s+mineEff(t),0)+retPart;
   const fullMine=fullTasks.reduce((s,t)=>s+mineEff(t),0)+retFull;
-  const orphanBills=srcBills.filter(b=>!b.taskId||!mine.some(t=>t.id===b.taskId))
+  const orphanBills=srcBills.filter(b=>!isRetBill(b)&&(!b.taskId||!mine.some(t=>t.id===b.taskId)))
     .reduce((s,b)=>s+billAmount(b),0);
   const totMine=sharePart+fullMine+orphanBills;
   const todayIso=iso(t0);
-  const needBill=mine.filter(t=>!inRet(t)&&(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id))
+  const needBill=mineQ.filter(t=>!inRet(t)&&(t.submit==="הוגש"||t.submit==="טופל"||t.submit==="בוטל")&&!billedTask(t.id))
     .map(t=>({t,why:"טרם נדרש תשלום",kind:"bill"}));
-  const noDate=open.filter(t=>!t.sched).map(t=>({t,why:"ללא יעד הגשה",kind:"plan"}));
-  const noPlan=open.filter(t=>t.work==="אצלי"&&!DB.plans.some(p=>p.taskId===t.id&&!p.done))
+  const noDate=openQ.filter(t=>!t.sched).map(t=>({t,why:"ללא יעד הגשה",kind:"plan"}));
+  const noPlan=openQ.filter(t=>t.work==="אצלי"&&!DB.plans.some(p=>p.taskId===t.id&&!p.done))
     .map(t=>({t,why:"אין תכנון בלוח",kind:"plan"}));
-  const noFee=mine.filter(t=>!inRet(t)&&num(t.fee)<=0&&num(t.extra)<=0&&!billedTask(t.id))
+  const noFee=mineQ.filter(t=>!inRet(t)&&num(t.fee)<=0&&num(t.extra)<=0&&!billedTask(t.id))
     .map(t=>({t,why:"שכ\"ט משרד 0",kind:"fee"}));
-  const workedNotBilled=open.filter(t=>!inRet(t)&&taskHours(t.id)>0&&!billedTask(t.id))
+  const workedNotBilled=openQ.filter(t=>!inRet(t)&&taskHours(t.id)>0&&!billedTask(t.id))
     .map(t=>({t,why:"בוצעו "+f1(taskHours(t.id))+" שעות",kind:"bill"}));
-  const latePlan=open.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר",kind:"plan"}));
+  const latePlan=openQ.filter(t=>t.sched&&t.sched<todayIso).map(t=>({t,why:"יעד ההגשה עבר",kind:"plan"}));
   const zeroBills=DB.bills.filter(b=>billAmount(b)<=0.001).map(b=>{
     const t=b.taskId?taskById(b.taskId):null;
     return {t:t||{id:"",clientId:b.clientId,year:b.year,type:"",submit:"דרישה",notes:""},
       bill:b,why:"דרישה על 0 ₪",kind:"zero"};});
   const seen={}; const attention=[...noFee,...needBill,...zeroBills,...workedNotBilled,...latePlan,...noPlan,...noDate]
     .filter(a=>{ const k=a.kind==="zero"?("b_"+a.bill.id):a.t.id; if(seen[k]) return false; seen[k]=true; return true; });
-  return `${bkStrip()}${printBtn()}${srcBar()}${printHead("מצב פיננסי"+(S.src?" — "+srcLabel(S.src):""))}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
+  return `${bkStrip()}${printBtn()}${srcBar()}${perBar()}${printHead("מצב פיננסי"+(S.src?" — "+srcLabel(S.src):""))}<h2>מצב פיננסי <span class="mute">(לחיצה על כרטיס פותחת פירוט)</span></h2>
   <div class="cards">
    ${(()=>{const cnt=DB.clients.filter(c=>mine.some(t=>t.clientId===c.id)).length;
       const openC=[...new Set(mine.filter(isOpen).map(t=>t.clientId))].length;
@@ -2170,7 +2239,9 @@ function viewStatus(){
       return card("₪ לשעה "+(mode==="act"?"(נדרש)":"(כולל צפי)"),f0(rate)||"—","יעד "+f0(tg),
         rate==null?"":(Math.round(rate)>=tg?"good":"bad"),"rate");})()}
    ${card("נדרש לגבייה",f0(dueAll)+" ₪","ללא נסיעות · שולם "+f0(paidAll),"","due")}
-   ${card("טרם דרשתי",f0(notBilledSum)+" ₪",notBilled.length+" משימות",notBilled.length?"warn":"good","notbilled")}
+   ${card("טרם דרשתי",f0(notBilledSum)+" ₪",
+      notBilled.length+" משימות"+(retNotBilled?" · ריטיינר "+f0(retNotBilled):""),
+      (notBilled.length||retNotBilled)?"warn":"good","notbilled")}
    ${card("משימות פתוחות",open.length,f1(remaining)+" שעות שנותרו","","open")}
    ${card("שעות פנויות",f1(free),"עד סוף החודש · קיבולת "+f1(cap)+
       (busyLeft?" · פרטי "+f1(busyLeft):"")+(actLeft?" · בוצעו "+f1(actLeft):""),free<0?"bad":"","free")}
@@ -2210,12 +2281,12 @@ function viewStatus(){
     +`<div class="mute">משימות ללא שכ"ט משרד, משימות שהסתיימו וטרם נדרש עליהן תשלום,
        משימות אצלי בלי תכנון בלוח, משימות פתוחות ללא יעד הגשה, ומשימות שהיעד שלהן עבר.</div>`
    :`<div class="panel"><span class="ok">אין משימות שדורשות טיפול ✓</span></div>`}
-  ${(()=>{const cl=open.filter(t=>t.work==="מול הלקוח")
+  ${(()=>{const cl=openQ.filter(t=>t.work==="מול הלקוח")
       .sort((a,b)=>(a.sched||"9999")>(b.sched||"9999")?1:-1);
     if(!cl.length) return "";
     return `<h2>פתוח מול לקוחות (${cl.length})</h2>`+
       table(["לקוח","שנה","מוצר","הגשה","יעד הגשה","צפי","שעות בפועל","גבייה","הערה","טיפול"],
-        cl.map(t=>[tName(t),t.year,t.type,t.submit,heDate(t.sched),f1(t.est),f1(taskHours(t.id)),
+        cl.map(t=>[tName(t)+srcTag(t)+retTag(t),t.year,t.type,t.submit,heDate(t.sched),f1(t.est),f1(taskHours(t.id)),
           t.noBill?'<span class="mute">לא לגבייה</span>'
             :(billedTask(t.id)?'<span class="ok">נדרש</span>':'<span class="flag">טרם נדרש</span>'),
           `<span class="note" onclick="editNote('${t.id}')" title="${esc(t.notes||"לחיצה להוספת הערה")}">${
@@ -2610,6 +2681,7 @@ function viewBills(){
     <label>חודש <select id="bM">${opts(months,m)}</select></label>
     <button class="act" id="bAdd">+ הוסף משימה לדרישה</button>
     <button class="ghost" id="bFree">+ שורה חופשית</button>
+    ${retClients().length?`<button class="ghost" onclick="retBillMonth('${m}')">+ ריטיינר לחודש</button>`:""}
     <button class="ghost" id="bMail">✉ שליחה במייל</button>
     <button class="act" id="bDoc">📄 מסמך דרישת תשלום רשמי</button>
     <button class="ghost" onclick="vatApply('${m}',true)">החלת מע"מ על החודש</button>
@@ -3874,7 +3946,12 @@ function wire(){
     fltType:"type",fltWork:"work",fltBill:"bill"};
   Object.entries(fmap).forEach(([id,key])=>{const e=el(id); if(e) e.onchange=ev=>{S.tf[key]=ev.target.value;renderAll();showTab("tasks");};});
   if(el("fltQ")) el("fltQ").onchange=ev=>{S.tf.q=ev.target.value;renderAll();showTab("tasks");};
-  document.querySelectorAll(".srcbar .chip").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".srcbar .chip[data-per]").forEach(b=>b.onclick=()=>{
+    S.perMode=b.dataset.per; renderAll(); showTab(S.tab||"status");});
+  if(el("perF")) el("perF").onchange=e=>{S.perFrom=e.target.value;renderAll();showTab(S.tab||"status");};
+  if(el("perT")) el("perT").onchange=e=>{S.perTo=e.target.value;renderAll();showTab(S.tab||"status");};
+  if(el("perNF")) el("perNF").onchange=e=>{S.perNoFuture=e.target.checked;renderAll();showTab(S.tab||"status");};
+  document.querySelectorAll(".srcbar .chip[data-src]").forEach(b=>b.onclick=()=>{
     S.src=b.dataset.src||"";
     try{ applyPv();
       document.body.classList.toggle("src-private",S.src==="private"&&DB.settings.pvColor!=="");
@@ -4327,8 +4404,14 @@ function setHdr(){
   h.onclick=drive.needsAuth?(()=>{ drive.silentTried=false;
     gAuth(ok=>{ if(ok){ renderAll(); setHdr(); driveSync(true); } },false); }):null;
 }
-const VER="4.14.0";
+const VER="4.15.0";
 const CHANGES=[
+ {v:"4.15.0",d:"2026-10-09",c:[
+  "דרישת תשלום לריטיינר: לחצן שמייצר דרישה חודשית לכל לקוח ריטיינר פעיל, בלי כפילות",
+  "בורר תקופה במסך מצב: עד החודש הנוכחי, השנה הנוכחית מצטבר, טווח חודשים, או הכול",
+  "סימון \"בלי חודשים עתידיים\" מונע מריטיינרים קדימה להיכנס לחישוב",
+  "השיוך לתקופה הוא לפי חודש הדרישה, ולמשימה שטרם נדרשה לפי יעד ההגשה",
+  "דורש טיפול ופתוח מול לקוחות נשארים מלאים — הם תור עבודה ולא תקופה כספית"]},
  {v:"4.14.0",d:"2026-10-09",c:[
   "שעות בפועל במסך מצב מסוננות לפי המקור שנבחר, וכך גם הפירוט שנפתח",
   "הריטיינר נספר כשכר טרחה: נכנס לשכ\"ט כולל, לשכ\"ט מלא, לסה\"כ שלי ולחישוב ₪ לשעה",
